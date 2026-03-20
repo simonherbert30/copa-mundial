@@ -32,13 +32,12 @@ const SPONSORS = [
 ];
 
 // --- SEED DATA ---
-const SEED_WOMEN = ["Brazil W", "Germany W", "Japan W", "France W"];
+const SEED_WOMEN = ["Brazil W", "Germany W", "Japan W", "France W", "Spain W", "England W"];
 const SEED_MEN = [
   "Brazil", "Germany", "Argentina", "France", "Spain", "England",
   "Portugal", "Netherlands", "Italy", "Belgium", "Croatia", "Morocco",
   "Japan", "South Korea", "USA", "Mexico", "Uruguay", "Colombia",
-  "Denmark", "Switzerland", "Senegal", "Ghana", "Nigeria", "Cameroon",
-  "Australia",
+  "Denmark", "Switzerland",
 ];
 
 // --- UTILS ---
@@ -478,6 +477,67 @@ function reducer(state, action) {
 function save(s) { try { localStorage.setItem("copa_mundial", JSON.stringify(s)); } catch {} }
 function load() { try { const d = localStorage.getItem("copa_mundial"); return d ? JSON.parse(d) : null; } catch { return null; } }
 
+// --- URL STATE ENCODING (for QR cross-device sharing) ---
+const PHASES_LIST = ["group", "R16", "QF", "SF", "Final"];
+const STATUS_LIST = ["scheduled", "live", "completed"];
+
+function encodeStateForUrl(state) {
+  try {
+    const teamIdx: Record<string, number> = {};
+    state.teams.forEach((t, i) => { teamIdx[t.id] = i; });
+    const groupIdx: Record<string, number> = {};
+    state.groups.forEach((g, i) => { groupIdx[g.id] = i; });
+    const compact = {
+      t: state.teams.map((t) => [t.name, t.competition === "men" ? 0 : 1]),
+      g: state.groups.map((g) => [g.name, g.teamIds.map((id) => teamIdx[id] ?? -1)]),
+      m: state.matches.map((m) => [
+        teamIdx[m.homeId] ?? -1, teamIdx[m.awayId] ?? -1,
+        groupIdx[m.groupId] ?? -1,
+        PHASES_LIST.indexOf(m.phase),
+        m.slotIndex ?? -1, m.fieldId ?? 0,
+        STATUS_LIST.indexOf(m.status),
+        m.scoreHome ?? -1, m.scoreAway ?? -1,
+        m.penHome ?? -1, m.penAway ?? -1,
+      ]),
+    };
+    return btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
+  } catch { return ""; }
+}
+
+function decodeStateFromUrl(encoded: string) {
+  try {
+    const compact = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+    const teams = (compact.t || []).map((t, i) => ({
+      id: String(i), name: t[0], competition: t[1] === 0 ? "men" : "women",
+    }));
+    const groups = (compact.g || []).map((g, i) => ({
+      id: String(i + 10000), name: g[0] || `Group ${String.fromCharCode(65 + i)}`,
+      teamIds: (g[1] || []).map(String),
+    }));
+    const matches = (compact.m || []).map((m, i) => ({
+      id: String(i + 20000),
+      homeId: String(m[0]), awayId: String(m[1]),
+      groupId: m[2] >= 0 ? String(m[2] + 10000) : null,
+      phase: PHASES_LIST[m[3]] || "group",
+      slotIndex: m[4] >= 0 ? m[4] : null,
+      fieldId: m[5] || null,
+      status: STATUS_LIST[m[6]] || "scheduled",
+      scoreHome: m[7] >= 0 ? m[7] : null,
+      scoreAway: m[8] >= 0 ? m[8] : null,
+      penHome: m[9] >= 0 ? m[9] : null,
+      penAway: m[10] >= 0 ? m[10] : null,
+    }));
+    return { teams, groups, matches, screenView: "all" };
+  } catch { return null; }
+}
+
+function getUrlStateParam() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("d") || "";
+  } catch { return ""; }
+}
+
 // ============================================================
 // DESIGN SYSTEM — Kopa Events branding
 // ============================================================
@@ -753,7 +813,7 @@ function Notification({ msg, type = "info" }) {
 // ============================================================
 // KNOCKOUT BRACKET
 // ============================================================
-function KnockoutBracket({ matches, teams, dispatch }) {
+function KnockoutBracket({ matches, teams, dispatch, showField = false }) {
   const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
   if (!phases.length) {
     return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
@@ -851,6 +911,7 @@ function KnockoutBracket({ matches, teams, dispatch }) {
                       {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
                         <div style={{ fontSize: 9, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} pen)</div>
                       )}
+                      {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: 8, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {f.name} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
                     </div>
                   </div>
                 );
@@ -967,7 +1028,7 @@ function AdminView({ state, dispatch }) {
           {teams.length === 0 && (
             <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>
               <p style={{ marginBottom: 10 }}>No teams yet.</p>
-              <Btn v="secondary" onClick={() => dispatch({ type: "SEED" })}>Load Seed Data (25M + 4W)</Btn>
+              <Btn v="secondary" onClick={() => dispatch({ type: "SEED" })}>Load Seed Data (20M + 6W)</Btn>
             </div>
           )}
         </Section>
@@ -1046,7 +1107,7 @@ function AdminView({ state, dispatch }) {
       {tab === "display" && (
         <Section title="Big Screen Control" sub="Choose what to display">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welcome Screen" }, { id: "all", label: "All Matches" }, { id: "men-groups", label: "Men Groups" }, { id: "women-groups", label: "Women Groups" }, { id: "men-knockout", label: "Men Knockout" }, { id: "standings", label: "Standings" }, { id: "finals", label: "Finals" }].map((v) => (
+            {[{ id: "welcome", label: "Welcome Screen" }, { id: "all", label: "All Matches" }, { id: "next-matches", label: "Next Matches" }, { id: "men-groups", label: "Men Groups" }, { id: "women-groups", label: "Women Groups" }, { id: "men-knockout", label: "Men Knockout" }, { id: "standings", label: "Standings" }, { id: "finals", label: "Finals" }].map((v) => (
               <Card key={v.id} onClick={() => dispatch({ type: "SCREEN_VIEW", payload: v.id })}
                 style={{ cursor: "pointer", textAlign: "center", padding: 14, border: state.screenView === v.id ? `2px solid ${C.accent}` : `1px solid ${C.border}`, background: state.screenView === v.id ? C.accentBg : C.card }}>
                 <span style={{ fontWeight: 700, fontSize: 12, color: state.screenView === v.id ? C.accent : C.text }}>{v.label}</span>
@@ -1236,6 +1297,14 @@ function WelcomeScreenDisplay() {
   );
 }
 
+// Helper: find the next slot index after the last match with a score entered
+function getNextMatchesSlot(matches) {
+  const scored = matches.filter((m) => m.scoreHome !== null || m.scoreAway !== null);
+  if (scored.length === 0) return matches.length > 0 ? Math.min(...matches.map((m) => m.slotIndex ?? 0)) : 0;
+  const lastScoredSlot = Math.max(...scored.map((m) => m.slotIndex ?? 0));
+  return lastScoredSlot + 1;
+}
+
 // ============================================================
 // VIEW 3: BIG SCREEN
 // ============================================================
@@ -1246,248 +1315,402 @@ function ScreenView({ state }) {
   const view = state.screenView || "all";
   if (view === "welcome") return <WelcomeScreenDisplay />;
   const all = state.matches;
-  const getM = () => {
-    switch (view) {
-      case "men-groups": return all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase === "group");
-      case "women-groups": return all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "women");
-      case "men-knockout": return all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase !== "group");
-      case "finals": return all.filter((m) => m.phase === "Final");
-      case "standings": return [];
-      default: return all;
-    }
-  };
-  const filtered = getM();
-  const live = filtered.filter((m) => m.status === "live");
-  const upcoming = filtered.filter((m) => m.status === "scheduled").slice(0, 12);
 
-  return (
-    <div style={{ background: C.bg, minHeight: "100vh", padding: "24px 28px", fontFamily: FONT_BODY }}>
-      <style>{GLOBAL_CSS}</style>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <Logo size="lg" />
-          <div><EventTitle size="lg" /><p style={{ margin: "2px 0 0", fontSize: 14, color: C.text2 }}>6 April 2026 · Gent</p></div>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {SPONSORS.slice(0, 6).map((s) => <div key={s} style={{ padding: "5px 12px", borderRadius: 6, background: C.card, border: `1px solid ${C.border}`, fontSize: 11, color: C.text2, fontWeight: 700 }}>{s}</div>)}
+  // Shared header bar
+  const Header = () => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 28px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <Logo size="md" />
+        <div>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 22, color: C.white, letterSpacing: "-0.03em", lineHeight: 1 }}>
+            Copa <span style={{ color: C.accent }}>Mundial</span>
+          </div>
+          <p style={{ margin: 0, fontSize: 11, color: C.text2 }}>6 April 2026 · Gent</p>
         </div>
       </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {SPONSORS.slice(0, 8).map((s) => <div key={s} style={{ padding: "3px 9px", borderRadius: 5, background: C.card, border: `1px solid ${C.border}`, fontSize: 10, color: C.text2, fontWeight: 700 }}>{s}</div>)}
+      </div>
+    </div>
+  );
 
-      {live.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.live, animation: "pulse 1.5s infinite" }} />
-            <h2 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: C.live, fontFamily: FONT_DISPLAY }}>LIVE</h2>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(live.length, 3)}, 1fr)`, gap: 12 }}>
-            {live.map((m) => {
-              const home = state.teams.find((t) => t.id === m.homeId);
-              const away = state.teams.find((t) => t.id === m.awayId);
-              const field = FIELDS.find((f) => f.id === m.fieldId);
-              return (
-                <div key={m.id} style={{ background: `linear-gradient(135deg, ${C.card}, ${C.live}05)`, border: `2px solid ${C.live}30`, borderRadius: 14, padding: 20, textAlign: "center" }}>
-                  <div style={{ fontSize: 10, color: C.live, fontWeight: 700, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>{field?.sponsor} · {m.phase === "group" ? "Group" : m.phase}</div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
-                    <div style={{ flex: 1, textAlign: "right" }}><div style={{ fontSize: 20, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name}</div></div>
-                    <div>
-                      <div style={{ fontSize: 40, fontWeight: 900, color: C.white, fontVariantNumeric: "tabular-nums", minWidth: 100, fontFamily: FONT_DISPLAY }}>{m.scoreHome ?? 0} – {m.scoreAway ?? 0}</div>
-                      {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
-                        <div style={{ fontSize: 14, color: C.orange, fontWeight: 700, marginTop: 2 }}>({m.penHome} – {m.penAway} pen)</div>
-                      )}
-                    </div>
-                    <div style={{ flex: 1 }}><div style={{ fontSize: 20, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name}</div></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+  // Fields bar (status-based, no clock time)
+  const FieldsBar = ({ matches: fm }) => {
+    // Find the current "active" slot: lowest slot with any live match, or lowest slot with scheduled matches
+    const liveSlot = fm.filter((m) => m.status === "live").map((m) => m.slotIndex ?? 0);
+    const scheduledSlots = fm.filter((m) => m.status === "scheduled").map((m) => m.slotIndex ?? 0);
+    const activeSlot = liveSlot.length > 0
+      ? Math.min(...liveSlot)
+      : scheduledSlots.length > 0
+      ? Math.min(...scheduledSlots)
+      : -1;
+
+    return (
+      <div style={{ padding: "8px 28px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6 }}>
+          {FIELDS.map((f) => {
+            const liveMatch = all.find((m) => m.fieldId === f.id && m.status === "live");
+            const currentMatch = activeSlot >= 0 ? all.find((m) => m.fieldId === f.id && m.slotIndex === activeSlot) : null;
+            const nextMatch = [...all].filter((m) => m.fieldId === f.id && m.status === "scheduled")
+              .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0))[0];
+            const shownMatch = liveMatch || currentMatch || nextMatch ||
+              [...all].filter((m) => m.fieldId === f.id && m.status === "completed").sort((a, b) => (b.slotIndex ?? 0) - (a.slotIndex ?? 0))[0];
+            const home = shownMatch ? state.teams.find((t) => t.id === shownMatch.homeId) : null;
+            const away = shownMatch ? state.teams.find((t) => t.id === shownMatch.awayId) : null;
+            const isL = shownMatch?.status === "live";
+            const isCur = shownMatch && shownMatch.slotIndex === activeSlot;
+            return (
+              <div key={f.id} style={{ background: isL ? `${C.live}0a` : isCur ? C.accentBg : C.card, border: `1px solid ${isL ? C.live + "50" : isCur ? C.accent + "40" : C.border}`, borderRadius: 8, padding: "7px 6px", textAlign: "center" }}>
+                <div style={{ fontSize: 8, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{f.sponsor}</div>
+                {shownMatch && <div style={{ fontSize: 8, color: isL ? C.live : C.text3, fontWeight: 700, marginBottom: 2 }}>{slotToTime(shownMatch.slotIndex ?? 0)}</div>}
+                {shownMatch ? (
+                  <>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: isL ? C.live : C.text3, margin: "1px 0" }}>{isL ? `${shownMatch.scoreHome}–${shownMatch.scoreAway}` : "vs"}</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
+                  </>
+                ) : <div style={{ fontSize: 9, color: C.text3, padding: "4px 0" }}>—</div>}
+              </div>
+            );
+          })}
         </div>
-      )}
+      </div>
+    );
+  };
 
-      {view !== "standings" && (
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Fields</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 7 }}>
-            {FIELDS.map((f) => {
-              const activeSlot = getCurrentActiveSlot();
-              // Find: active-slot match > live > next upcoming > last completed (all matches, not just filtered)
-              const fm =
-                all.find((m) => m.fieldId === f.id && m.slotIndex === activeSlot) ||
-                all.find((m) => m.fieldId === f.id && m.status === "live") ||
-                [...all].filter((m) => m.fieldId === f.id && m.status === "scheduled" && (m.slotIndex ?? -1) >= activeSlot)
-                  .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0))[0] ||
-                [...all].filter((m) => m.fieldId === f.id && m.status === "completed")
-                  .sort((a, b) => (b.slotIndex ?? 0) - (a.slotIndex ?? 0))[0];
-              const home = fm ? state.teams.find((t) => t.id === fm.homeId) : null;
-              const away = fm ? state.teams.find((t) => t.id === fm.awayId) : null;
-              const isL = fm?.status === "live";
-              const isCurrent = fm && fm.slotIndex === activeSlot;
-              const timeStr = fm ? slotToTime(fm.slotIndex ?? 0) : null;
-              return (
-                <div key={f.id} style={{ background: isL ? `${C.live}08` : isCurrent ? C.accentBg : C.card, border: `1px solid ${isL ? C.live + "40" : isCurrent ? C.accent + "33" : C.border}`, borderRadius: 10, padding: "9px 8px", textAlign: "center" }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", marginBottom: 3, letterSpacing: "0.08em" }}>{f.sponsor}</div>
-                  {timeStr && <div style={{ fontSize: 9, color: isL ? C.live : isCurrent ? C.accent : C.text3, fontWeight: 700, marginBottom: 4 }}>{timeStr}</div>}
-                  {fm ? (
-                    <>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name}</div>
-                      <div style={{ fontSize: 14, fontWeight: 900, color: isL ? C.live : C.text3, margin: "2px 0" }}>
-                        {isL ? `${fm.scoreHome} – ${fm.scoreAway}` : "vs"}
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name}</div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize: 10, color: C.text3, padding: "6px 0" }}>—</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {(view === "standings" || view === "all" || view === "men-groups" || view === "women-groups") && (
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Standings</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 8 }}>
-            {(view === "men-groups"
-              ? state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men")
-              : view === "women-groups"
-              ? state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women")
-              : state.groups
-            ).slice(0, 8).map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-          </div>
-        </div>
-      )}
-
-      {view === "all" && all.length > 0 && (() => {
-        const maxSlot = Math.max(...all.map((m) => m.slotIndex ?? 0));
-        const firstUpcomingSlot = upcoming[0]?.slotIndex ?? maxSlot + 1;
-        const showFrom = Math.max(0, firstUpcomingSlot - 1);
-        const slots = Array.from({ length: maxSlot - showFrom + 1 }, (_, i) => showFrom + i);
-        return (
-          <div>
-            <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Full Schedule</h2>
-            {slots.map((si) => {
-              const slotM = all.filter((m) => m.slotIndex === si);
-              if (!slotM.length) return null;
-              return (
-                <div key={si} style={{ marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <Badge>{slotToTime(si)}</Badge>
-                    <span style={{ fontSize: 11, color: C.text3 }}>{slotM.length} matches</span>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 5 }}>
-                    {slotM.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })()}
-
-      {view === "men-knockout" && filtered.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Knockout Bracket</h2>
-          <KnockoutBracket matches={filtered} teams={state.teams} />
-        </div>
-      )}
-
-      {view === "finals" && (() => {
-        const menFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "men");
-        const womenFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "women");
-        const finalMatches = [womenFinal, menFinal].filter(Boolean);
-
-        if (!finalMatches.length) {
-          return (
-            <div style={{ textAlign: "center", padding: 60 }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>🏆</div>
-              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 32, color: C.white, marginBottom: 8 }}>Finals</h2>
-              <p style={{ color: C.text3, fontSize: 16 }}>Finals not yet determined — complete the knockout stage first.</p>
+  // ---- "ALL MATCHES" view ----
+  if (view === "all") {
+    const live = all.filter((m) => m.status === "live");
+    const maxSlot = all.length > 0 ? Math.max(...all.map((m) => m.slotIndex ?? 0)) : 0;
+    const minSlot = all.length > 0 ? Math.min(...all.map((m) => m.slotIndex ?? 0)) : 0;
+    const allSlots = Array.from({ length: maxSlot - minSlot + 1 }, (_, i) => minSlot + i);
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <Header />
+        <FieldsBar matches={all} />
+        {live.length > 0 && (
+          <div style={{ padding: "8px 28px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.live, animation: "pulse 1.5s infinite" }} />
+              <span style={{ fontSize: 12, fontWeight: 800, color: C.live, fontFamily: FONT_DISPLAY }}>LIVE</span>
             </div>
-          );
-        }
-
-        return (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ textAlign: "center", marginBottom: 28 }}>
-              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 26, color: C.accent, letterSpacing: "-0.02em", margin: 0 }}>🏆 Finals</h2>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: finalMatches.length > 1 ? "1fr 1fr" : "600px", justifyContent: "center", gap: 24, maxWidth: 1000, margin: "0 auto" }}>
-              {finalMatches.map((m) => {
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(live.length, 4)}, 1fr)`, gap: 8 }}>
+              {live.map((m) => {
                 const home = state.teams.find((t) => t.id === m.homeId);
                 const away = state.teams.find((t) => t.id === m.awayId);
-                const comp = state.teams.find((t) => t.id === m.homeId)?.competition;
-                const isDone = m.status === "completed";
-                const isLiveM = m.status === "live";
-                const winner = getMatchWinner(m);
+                const field = FIELDS.find((f) => f.id === m.fieldId);
                 return (
-                  <div key={m.id} style={{
-                    background: `linear-gradient(135deg, ${C.card}, ${C.accentBg})`,
-                    border: `2px solid ${isLiveM ? C.live : isDone ? C.accent : C.border2}`,
-                    borderRadius: 20, padding: "28px 24px", textAlign: "center",
-                  }}>
-                    <div style={{ marginBottom: 16 }}>
-                      <Badge color={comp === "women" ? C.blue : C.orange}>{comp === "women" ? "Women's Final" : "Men's Final"}</Badge>
-                      {isLiveM && <span style={{ marginLeft: 8, fontSize: 10, color: C.live, fontWeight: 700, animation: "pulse 1.5s infinite" }}>● LIVE</span>}
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ flex: 1, textAlign: "right" }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: winner === m.homeId ? C.accent : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>
-                          {home?.name || "TBD"}
-                        </div>
-                        {winner === m.homeId && <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 4 }}>🏆 WINNER</div>}
-                      </div>
-                      <div style={{ minWidth: 80, textAlign: "center" }}>
-                        {isDone || isLiveM ? (
-                          <div style={{ fontSize: 48, fontWeight: 900, color: C.white, fontFamily: FONT_DISPLAY, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-                            {m.scoreHome}–{m.scoreAway}
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: 24, color: C.text3, fontWeight: 700 }}>vs</div>
-                        )}
-                        {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
-                          <div style={{ fontSize: 13, color: C.orange, fontWeight: 700, marginTop: 4 }}>({m.penHome}–{m.penAway} pen)</div>
-                        )}
-                      </div>
-                      <div style={{ flex: 1, textAlign: "left" }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: winner === m.awayId ? C.accent : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>
-                          {away?.name || "TBD"}
-                        </div>
-                        {winner === m.awayId && <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 4 }}>🏆 WINNER</div>}
-                      </div>
+                  <div key={m.id} style={{ background: `${C.live}08`, border: `1px solid ${C.live}30`, borderRadius: 10, padding: "8px 12px", textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: C.live, fontWeight: 700, marginBottom: 3, textTransform: "uppercase" }}>{field?.sponsor} · {field?.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      <span style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name}</span>
+                      <span style={{ fontSize: 22, fontWeight: 900, color: C.white, fontVariantNumeric: "tabular-nums", fontFamily: FONT_DISPLAY, minWidth: 60, textAlign: "center" }}>{m.scoreHome ?? 0}–{m.scoreAway ?? 0}</span>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name}</span>
                     </div>
                   </div>
                 );
               })}
             </div>
           </div>
-        );
-      })()}
-
-      {view !== "all" && view !== "standings" && view !== "finals" && filtered.filter((m) => m.status === "completed").length > 0 && live.length === 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Recent Results</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 6 }}>
-            {filtered.filter((m) => m.status === "completed").slice(-8).map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
-          </div>
+        )}
+        <div style={{ flex: 1, overflow: "auto", padding: "10px 28px 16px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8, fontFamily: FONT_DISPLAY }}>Full Schedule — All Matches</div>
+          {allSlots.map((si) => {
+            const slotM = all.filter((m) => m.slotIndex === si);
+            if (!slotM.length) return null;
+            return (
+              <div key={si} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                  <Badge>{slotToTime(si)}</Badge>
+                  <span style={{ fontSize: 10, color: C.text3 }}>{slotM.length} matches</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 4 }}>
+                  {slotM.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
+                </div>
+              </div>
+            );
+          })}
+          {all.length === 0 && <div style={{ textAlign: "center", padding: 40, color: C.text3 }}>No matches scheduled yet.</div>}
         </div>
-      )}
-
-      {upcoming.length > 0 && view !== "standings" && view !== "all" && view !== "finals" && (
-        <div>
-          <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Upcoming</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 6 }}>
-            {upcoming.slice(0, 8).map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
-          </div>
-        </div>
-      )}
-
-      <div style={{ textAlign: "center", marginTop: 28, padding: "12px 0", borderTop: `1px solid ${C.border}` }}>
-        <span style={{ fontSize: 11, color: C.text3 }}>Developed by <span style={{ color: C.accent, fontWeight: 700 }}>Clavert Consulting</span></span>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // ---- "NEXT MATCHES" view ----
+  if (view === "next-matches") {
+    const nextSlot = getNextMatchesSlot(all);
+    const nextSlotMatches = all.filter((m) => m.slotIndex === nextSlot);
+    const afterSlot = nextSlot + 1;
+    const afterSlotMatches = all.filter((m) => m.slotIndex === afterSlot);
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <Header />
+        <FieldsBar matches={all} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 28px", overflow: "hidden" }}>
+          <div style={{ flex: 1, minHeight: 0, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.live, animation: "pulse 1.5s infinite" }} />
+              <h2 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 20, color: C.live }}>Up Next</h2>
+              {nextSlotMatches.length > 0 && <Badge color={C.live}>{slotToTime(nextSlot)}</Badge>}
+            </div>
+            {nextSlotMatches.length > 0 ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 8 }}>
+                {nextSlotMatches.map((m) => {
+                  const home = state.teams.find((t) => t.id === m.homeId);
+                  const away = state.teams.find((t) => t.id === m.awayId);
+                  const field = FIELDS.find((f) => f.id === m.fieldId);
+                  return (
+                    <div key={m.id} style={{ background: `${C.live}08`, border: `2px solid ${C.live}30`, borderRadius: 12, padding: "14px 16px" }}>
+                      <div style={{ fontSize: 10, color: C.live, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>
+                        {field?.sponsor} · {field?.name} · {m.phase === "group" ? "Group" : m.phase}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 15, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.text3, padding: "2px 10px" }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 15, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: 32, color: C.text3 }}>No upcoming matches.</div>
+            )}
+          </div>
+          {afterSlotMatches.length > 0 && (
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <h3 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 15, color: C.text2 }}>Following</h3>
+                <Badge color={C.text2}>{slotToTime(afterSlot)}</Badge>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 6 }}>
+                {afterSlotMatches.map((m) => {
+                  const home = state.teams.find((t) => t.id === m.homeId);
+                  const away = state.teams.find((t) => t.id === m.awayId);
+                  const field = FIELDS.find((f) => f.id === m.fieldId);
+                  return (
+                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "10px 14px" }}>
+                      <div style={{ fontSize: 9, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{field?.sponsor} · {field?.name}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 13, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 11, color: C.text3 }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- "STANDINGS" view ----
+  if (view === "standings") {
+    const menGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men");
+    const womenGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women");
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <Header />
+        <div style={{ flex: 1, overflow: "auto", padding: "14px 28px" }}>
+          {womenGroups.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `2px solid ${C.blue}30` }}>
+                <div style={{ width: 4, height: 22, background: C.blue, borderRadius: 2 }} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 16, color: C.blue, letterSpacing: "-0.01em" }}>Women's Cup</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8 }}>
+                {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+              </div>
+            </div>
+          )}
+          {menGroups.length > 0 && (
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `2px solid ${C.orange}30` }}>
+                <div style={{ width: 4, height: 22, background: C.orange, borderRadius: 2 }} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 16, color: C.orange, letterSpacing: "-0.01em" }}>Men's Cup</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8 }}>
+                {menGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+              </div>
+            </div>
+          )}
+          {state.groups.length === 0 && <div style={{ textAlign: "center", padding: 40, color: C.text3 }}>No standings yet.</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- "MEN-GROUPS" / "WOMEN-GROUPS" views ----
+  if (view === "men-groups" || view === "women-groups") {
+    const compFilter = view === "men-groups" ? "men" : "women";
+    const compColor = compFilter === "men" ? C.orange : C.blue;
+    const compLabel = compFilter === "men" ? "Men's Cup" : "Women's Cup";
+    const compGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === compFilter);
+    const compMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === compFilter);
+    const live = compMatches.filter((m) => m.status === "live");
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <Header />
+        <FieldsBar matches={compMatches} />
+        <div style={{ flex: 1, overflow: "auto", padding: "12px 28px" }}>
+          {live.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.live, animation: "pulse 1.5s infinite" }} />
+                <span style={{ fontSize: 11, fontWeight: 800, color: C.live }}>LIVE</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(live.length, 4)}, 1fr)`, gap: 6 }}>
+                {live.map((m) => {
+                  const home = state.teams.find((t) => t.id === m.homeId);
+                  const away = state.teams.find((t) => t.id === m.awayId);
+                  const field = FIELDS.find((f) => f.id === m.fieldId);
+                  return (
+                    <div key={m.id} style={{ background: `${C.live}08`, border: `1px solid ${C.live}30`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                      <div style={{ fontSize: 8, color: C.live, fontWeight: 700, marginBottom: 2 }}>{field?.sponsor} · {field?.name}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 12, fontWeight: 800, color: C.white }}>{home?.name}</span>
+                        <span style={{ fontSize: 18, fontWeight: 900, color: C.white, fontVariantNumeric: "tabular-nums" }}>{m.scoreHome ?? 0}–{m.scoreAway ?? 0}</span>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: 800, color: C.white }}>{away?.name}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `2px solid ${compColor}30` }}>
+            <div style={{ width: 4, height: 22, background: compColor, borderRadius: 2 }} />
+            <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 16, color: compColor }}>{compLabel} — Standings</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 8 }}>
+            {compGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- "MEN-KNOCKOUT" view ----
+  if (view === "men-knockout") {
+    const koMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase !== "group");
+    const live = koMatches.filter((m) => m.status === "live");
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <Header />
+        <FieldsBar matches={all} />
+        <div style={{ flex: 1, overflow: "auto", padding: "12px 28px" }}>
+          {live.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.live, animation: "pulse 1.5s infinite" }} />
+                <span style={{ fontSize: 11, fontWeight: 800, color: C.live }}>LIVE</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(live.length, 4)}, 1fr)`, gap: 6 }}>
+                {live.map((m) => {
+                  const home = state.teams.find((t) => t.id === m.homeId);
+                  const away = state.teams.find((t) => t.id === m.awayId);
+                  const field = FIELDS.find((f) => f.id === m.fieldId);
+                  return (
+                    <div key={m.id} style={{ background: `${C.live}08`, border: `1px solid ${C.live}30`, borderRadius: 8, padding: "8px 12px", textAlign: "center" }}>
+                      <div style={{ fontSize: 8, color: C.live, fontWeight: 700, marginBottom: 2 }}>{field?.sponsor} · {field?.name} · {m.phase}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 12, fontWeight: 800, color: C.white }}>{home?.name}</span>
+                        <span style={{ fontSize: 18, fontWeight: 900, color: C.white, fontVariantNumeric: "tabular-nums" }}>{m.scoreHome ?? 0}–{m.scoreAway ?? 0}</span>
+                        <span style={{ flex: 1, fontSize: 12, fontWeight: 800, color: C.white }}>{away?.name}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {koMatches.length > 0 ? (
+            <KnockoutBracket matches={koMatches} teams={state.teams} showField={true} />
+          ) : (
+            <div style={{ textAlign: "center", padding: 40, color: C.text3 }}>Complete group stage to generate knockout.</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- "FINALS" view ----
+  if (view === "finals") {
+    const menFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "men");
+    const womenFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "women");
+    const finalMatches = [womenFinal, menFinal].filter(Boolean);
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <Header />
+        <FieldsBar matches={all} />
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px" }}>
+          {finalMatches.length === 0 ? (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🏆</div>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 32, color: C.white, marginBottom: 8 }}>Finals</h2>
+              <p style={{ color: C.text3, fontSize: 16 }}>Finals not yet determined.</p>
+            </div>
+          ) : (
+            <>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 24, color: C.accent, margin: "0 0 24px", letterSpacing: "-0.02em" }}>🏆 Finals</h2>
+              <div style={{ display: "grid", gridTemplateColumns: finalMatches.length > 1 ? "1fr 1fr" : "minmax(320px, 560px)", gap: 28, width: "100%", maxWidth: 1000 }}>
+                {finalMatches.map((m) => {
+                  const home = state.teams.find((t) => t.id === m.homeId);
+                  const away = state.teams.find((t) => t.id === m.awayId);
+                  const comp = state.teams.find((t) => t.id === m.homeId)?.competition;
+                  const field = FIELDS.find((f) => f.id === m.fieldId);
+                  const isDone = m.status === "completed";
+                  const isLiveM = m.status === "live";
+                  const winner = getMatchWinner(m);
+                  return (
+                    <div key={m.id} style={{ background: `linear-gradient(135deg, ${C.card}, ${C.accentBg})`, border: `2px solid ${isLiveM ? C.live : isDone ? C.accent : C.border2}`, borderRadius: 20, padding: "24px 24px", textAlign: "center" }}>
+                      <div style={{ marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                        <Badge color={comp === "women" ? C.blue : C.orange}>{comp === "women" ? "Women's Final" : "Men's Final"}</Badge>
+                        {field && <span style={{ fontSize: 10, color: C.text3, fontWeight: 600 }}>{field.sponsor} · {field.name}</span>}
+                        {isLiveM && <span style={{ fontSize: 10, color: C.live, fontWeight: 700, animation: "pulse 1.5s infinite" }}>● LIVE</span>}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <div style={{ flex: 1, textAlign: "right" }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: winner === m.homeId ? C.accent : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>{home?.name || "TBD"}</div>
+                          {winner === m.homeId && <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 4 }}>🏆 WINNER</div>}
+                        </div>
+                        <div style={{ minWidth: 80, textAlign: "center" }}>
+                          {isDone || isLiveM ? (
+                            <div style={{ fontSize: 48, fontWeight: 900, color: C.white, fontFamily: FONT_DISPLAY, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{m.scoreHome}–{m.scoreAway}</div>
+                          ) : (
+                            <div style={{ fontSize: 24, color: C.text3, fontWeight: 700 }}>vs</div>
+                          )}
+                          {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
+                            <div style={{ fontSize: 13, color: C.orange, fontWeight: 700, marginTop: 4 }}>({m.penHome}–{m.penAway} pen)</div>
+                          )}
+                        </div>
+                        <div style={{ flex: 1, textAlign: "left" }}>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: winner === m.awayId ? C.accent : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>{away?.name || "TBD"}</div>
+                          {winner === m.awayId && <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 4 }}>🏆 WINNER</div>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // fallback
+  return <div style={{ background: C.bg, color: C.text, padding: 40 }}>Unknown view</div>;
 }
 
 // ============================================================
@@ -1515,7 +1738,17 @@ function LoginScreen({ onLogin }) {
 // APP
 // ============================================================
 export default function App() {
-  const [state, dispatch] = useReducer(reducer, INIT, (init) => load() || init);
+  const [state, dispatch] = useReducer(reducer, INIT, (init) => {
+    // On initial load: try URL-encoded state first (for cross-device QR), then localStorage
+    if (typeof window !== "undefined") {
+      const urlParam = getUrlStateParam();
+      if (urlParam) {
+        const decoded = decodeStateFromUrl(urlParam);
+        if (decoded && decoded.teams.length > 0) return decoded;
+      }
+    }
+    return load() || init;
+  });
   const [view, setView] = useState("home");
   const [adminAuth, setAdminAuth] = useState(false);
 
@@ -1533,7 +1766,10 @@ export default function App() {
     return () => clearInterval(iv);
   }, [view]);
 
-  const playerUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#player` : "";
+  const encoded = typeof window !== "undefined" ? encodeStateForUrl(state) : "";
+  const playerUrl = typeof window !== "undefined"
+    ? `${window.location.origin}${window.location.pathname}${encoded ? `?d=${encoded}` : ""}#player`
+    : "";
 
   if (view === "screen") return <ScreenView state={state} />;
 
