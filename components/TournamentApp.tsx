@@ -1117,6 +1117,23 @@ function AdminView({ state, dispatch }) {
           <Card style={{ marginTop: 14, textAlign: "center" }}>
             <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in another tab for the display.</p>
           </Card>
+          {state.teams.length > 0 && (() => {
+            const shareUrl = typeof window !== "undefined"
+              ? `${window.location.origin}${window.location.pathname}?d=${encodeStateForUrl(state)}#player`
+              : "";
+            return (
+              <Card style={{ marginTop: 10 }}>
+                <p style={{ color: C.text2, fontSize: 12, marginBottom: 8 }}>
+                  📱 Share with players/supporters on other devices — copy this link and send via WhatsApp/text:
+                </p>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <input readOnly value={shareUrl} style={{ flex: 1, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 6, padding: "6px 10px", color: C.text3, fontSize: 10, minWidth: 0 }} />
+                  <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(shareUrl); }}>Copy</Btn>
+                </div>
+                <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Re-copy this link each time scores are updated so players see the latest schedule.</p>
+              </Card>
+            );
+          })()}
           <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Danger Zone</h3>
             <ResetPanel dispatch={dispatch} />
@@ -1766,9 +1783,8 @@ export default function App() {
     return () => clearInterval(iv);
   }, [view]);
 
-  const encoded = typeof window !== "undefined" ? encodeStateForUrl(state) : "";
   const playerUrl = typeof window !== "undefined"
-    ? `${window.location.origin}${window.location.pathname}${encoded ? `?d=${encoded}` : ""}#player`
+    ? `${window.location.origin}${window.location.pathname}#player`
     : "";
 
   if (view === "screen") return <ScreenView state={state} />;
