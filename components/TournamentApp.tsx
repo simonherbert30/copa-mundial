@@ -752,10 +752,16 @@ function AdminView({ state, dispatch }) {
   const maxSlot = matches.length > 0 ? Math.max(...matches.map((m) => m.slotIndex ?? 0)) : -1;
   const hasKO = matches.some((m) => m.phase !== "group");
   const groupMatchesPending = matches.some((m) => m.phase === "group" && m.status !== "completed");
+  const isLocked = groups.length > 0;
+  const allGroupsDone = isLocked && matches.filter((m) => m.phase === "group").every((m) => m.status === "completed");
 
-  const tabList = isW
-    ? [{ id: "teams", label: "Teams" }, { id: "schedule", label: "Schedule" }, { id: "standings", label: "Standings" }, { id: "display", label: "Screen" }]
-    : [{ id: "teams", label: "Teams" }, { id: "schedule", label: "Schedule" }, { id: "standings", label: "Standings" }, { id: "knockout", label: "Knockout" }, { id: "display", label: "Screen" }];
+  const tabList = [
+    { id: "teams", label: "Teams" },
+    { id: "schedule", label: "Schedule" },
+    { id: "standings", label: "Standings" },
+    ...(hasKO ? [{ id: "knockout", label: isW ? "Final" : "Knockout" }] : []),
+    { id: "display", label: "Screen" },
+  ];
 
   return (
     <div>
@@ -768,21 +774,29 @@ function AdminView({ state, dispatch }) {
       </div>
 
       {tab === "teams" && (
-        <Section title="Teams" sub={`${comp} · min ${MIN_MATCHES_PER_TEAM} matches per team · 30 min matches${isW ? " · no knockout" : ""}`}>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <Input value={newTeam} onChange={setNewTeam} placeholder="Team name..." />
-            <Btn onClick={() => { if (newTeam.trim()) { dispatch({ type: "ADD_TEAM", payload: { name: newTeam.trim(), competition: comp } }); setNewTeam(""); } }}>Add</Btn>
-          </div>
+        <Section title="Teams" sub={`${comp} · min ${MIN_MATCHES_PER_TEAM} matches per team · 30 min matches`}>
+          {isLocked && (
+            <div style={{ padding: "8px 14px", borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accent}22`, color: C.accent, fontSize: 11, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              🔒 Tournament generated — teams are locked
+            </div>
+          )}
+          {!isLocked && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <Input value={newTeam} onChange={setNewTeam} placeholder="Team name..." />
+              <Btn onClick={() => { if (newTeam.trim()) { dispatch({ type: "ADD_TEAM", payload: { name: newTeam.trim(), competition: comp } }); setNewTeam(""); } }}>Add</Btn>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <Btn v="secondary" onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Generate Groups + Schedule</Btn>
             {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Generate Knockout</Btn>}
+            {isW && groups.length > 0 && !hasKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Generate Women's Final</Btn>}
             {groupMatchesPending && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: "group", comp } })} style={{ color: C.orange }}>🎲 Fill Group Scores (Demo)</Btn>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
             {teams.map((t) => (
               <Card key={t.id} style={{ padding: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 600, color: C.text, fontSize: 13 }}>{t.name}</span>
-                <button onClick={() => dispatch({ type: "REMOVE_TEAM", payload: t.id })} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 13 }}>✕</button>
+                {!isLocked && <button onClick={() => dispatch({ type: "REMOVE_TEAM", payload: t.id })} style={{ background: "none", border: "none", color: C.red, cursor: "pointer", fontSize: 13 }}>✕</button>}
               </Card>
             ))}
           </div>
@@ -826,9 +840,9 @@ function AdminView({ state, dispatch }) {
         </Section>
       )}
 
-      {tab === "knockout" && !isW && (
-        <Section title="Knockout Stage" sub="Next round auto-generates when all matches in a round are completed">
-          <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasKO} style={{ marginBottom: 14 }}>🏆 Generate from Standings</Btn>
+      {tab === "knockout" && (
+        <Section title={isW ? "Women's Final" : "Knockout Stage"} sub={isW ? "Top 2 teams from the group stage" : "Next round auto-generates when all matches in a round are completed"}>
+          {!isW && <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasKO} style={{ marginBottom: 14 }}>🏆 Generate from Standings</Btn>}
           {(() => {
             const ko = matches.filter((m) => m.phase !== "group");
             if (!ko.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
@@ -1119,7 +1133,9 @@ function ScreenView({ state }) {
           <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Fields</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 7 }}>
             {FIELDS.map((f) => {
-              const fm = live.find((m) => m.fieldId === f.id) || upcoming.find((m) => m.fieldId === f.id);
+              const fm = live.find((m) => m.fieldId === f.id)
+                || upcoming.find((m) => m.fieldId === f.id)
+                || [...filtered].sort((a, b) => (b.slotIndex ?? 0) - (a.slotIndex ?? 0)).find((m) => m.fieldId === f.id && m.status === "completed");
               const home = fm ? state.teams.find((t) => t.id === fm.homeId) : null;
               const away = fm ? state.teams.find((t) => t.id === fm.awayId) : null;
               const isL = fm?.status === "live";
@@ -1134,20 +1150,61 @@ function ScreenView({ state }) {
         </div>
       )}
 
-      {(view === "standings" || view === "all") && (
+      {(view === "standings" || view === "all" || view === "men-groups" || view === "women-groups") && (
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Standings</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 8 }}>
-            {state.groups.slice(0, 8).map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+            {(view === "men-groups"
+              ? state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men")
+              : view === "women-groups"
+              ? state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women")
+              : state.groups
+            ).slice(0, 8).map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
           </div>
         </div>
       )}
 
-      {upcoming.length > 0 && view !== "standings" && (
+      {view === "all" && all.length > 0 && (() => {
+        const maxSlot = Math.max(...all.map((m) => m.slotIndex ?? 0));
+        const firstUpcomingSlot = upcoming[0]?.slotIndex ?? maxSlot + 1;
+        const showFrom = Math.max(0, firstUpcomingSlot - 1);
+        const slots = Array.from({ length: maxSlot - showFrom + 1 }, (_, i) => showFrom + i);
+        return (
+          <div>
+            <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Full Schedule</h2>
+            {slots.map((si) => {
+              const slotM = all.filter((m) => m.slotIndex === si);
+              if (!slotM.length) return null;
+              return (
+                <div key={si} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <Badge>{slotToTime(si)}</Badge>
+                    <span style={{ fontSize: 11, color: C.text3 }}>{slotM.length} matches</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 5 }}>
+                    {slotM.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {view !== "all" && view !== "standings" && filtered.filter((m) => m.status === "completed").length > 0 && live.length === 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Recent Results</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 6 }}>
+            {filtered.filter((m) => m.status === "completed").slice(-8).map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
+          </div>
+        </div>
+      )}
+
+      {upcoming.length > 0 && view !== "standings" && view !== "all" && (
         <div>
           <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Upcoming</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 6 }}>
-            {upcoming.slice(0, 6).map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
+            {upcoming.slice(0, 8).map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact />)}
           </div>
         </div>
       )}
@@ -1189,7 +1246,13 @@ export default function App() {
   const [adminAuth, setAdminAuth] = useState(false);
 
   useEffect(() => { save(state); }, [state]);
-  useEffect(() => { const h = () => setView(window.location.hash.replace("#", "") || "home"); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
+  useEffect(() => {
+    const initial = window.location.hash.replace("#", "") || "home";
+    if (initial !== "home") setView(initial);
+    const h = () => setView(window.location.hash.replace("#", "") || "home");
+    window.addEventListener("hashchange", h);
+    return () => window.removeEventListener("hashchange", h);
+  }, []);
   useEffect(() => {
     if (view !== "screen") return;
     const iv = setInterval(() => { const fresh = load(); if (fresh) dispatch({ type: "LOAD", payload: fresh }); }, POLL_INTERVAL);
