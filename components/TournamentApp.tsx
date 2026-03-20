@@ -10,6 +10,7 @@ import { QRCodeSVG } from "qrcode.react";
 
 // --- CONFIG ---
 const ADMIN_PASSWORD = "kopa2026";
+const RESET_PASSWORD = "kopa_reset";
 const NUM_FIELDS = 8;
 const SLOT_DURATION_MIN = 30;
 const REST_SLOTS = 1;
@@ -55,6 +56,16 @@ function slotToTime(slotIndex) {
   const d = new Date(2026, 3, 6, START_HOUR, START_MIN);
   d.setMinutes(d.getMinutes() + slotIndex * SLOT_DURATION_MIN);
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Returns the current "active" slot index based on real clock time.
+// Slot i is displayed from (slotStart - 5min) to (slotStart + 25min).
+// This covers the full 30-min block: enter 5 min before, clear 5 min after.
+function getCurrentActiveSlot() {
+  const now = new Date();
+  const minutesSinceStart =
+    (now.getHours() - START_HOUR) * 60 + (now.getMinutes() - START_MIN);
+  return Math.floor((minutesSinceStart + 5) / SLOT_DURATION_MIN);
 }
 
 // --- TOURNAMENT LOGIC ---
@@ -425,6 +436,8 @@ function reducer(state, action) {
       return { ...state, screenView: action.payload };
     case "LOAD":
       return { ...action.payload };
+    case "RESET":
+      return { ...INIT };
     case "FILL_SCORES": {
       const { phase, comp: fillComp } = action.payload;
       let newMatches = state.matches.map((m) => {
@@ -738,6 +751,157 @@ function Notification({ msg, type = "info" }) {
 }
 
 // ============================================================
+// KNOCKOUT BRACKET
+// ============================================================
+function KnockoutBracket({ matches, teams, dispatch }) {
+  const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
+  if (!phases.length) {
+    return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
+  }
+
+  const CARD_W = 196;
+  const CARD_H = 62;
+  const V_GAP = 16;
+  const H_GAP = 40;
+  const LABEL_H = 26;
+  const PHASE_LABELS = { R16: "Round of 16", QF: "Quarter-Finals", SF: "Semi-Finals", Final: "Final" };
+
+  const byPhase = {};
+  phases.forEach((p) => { byPhase[p] = matches.filter((m) => m.phase === p); });
+
+  const unit = CARD_H + V_GAP;
+  const firstRoundCount = byPhase[phases[0]].length;
+  const totalH = firstRoundCount * unit;
+  const totalW = phases.length * (CARD_W + H_GAP) - H_GAP;
+
+  // Top Y of card at (roundIndex, matchIndex)
+  const matchY = (ri, mi) => {
+    const factor = Math.pow(2, ri);
+    return (mi * factor + (factor - 1) / 2) * unit;
+  };
+
+  return (
+    <div style={{ overflowX: "auto", paddingBottom: 8 }}>
+      <div style={{ position: "relative", width: totalW, height: totalH + LABEL_H }}>
+        {/* SVG bracket connector lines */}
+        <svg
+          style={{ position: "absolute", top: LABEL_H, left: 0, pointerEvents: "none" }}
+          width={totalW} height={totalH}
+          viewBox={`0 0 ${totalW} ${totalH}`}
+        >
+          {phases.map((phase, pi) => {
+            if (pi === 0) return null;
+            return byPhase[phase].map((_, mi) => {
+              const prevRight = (pi - 1) * (CARD_W + H_GAP) + CARD_W;
+              const curLeft = pi * (CARD_W + H_GAP);
+              const midX = prevRight + H_GAP / 2;
+              const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
+              const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
+              const pY = matchY(pi, mi) + CARD_H / 2;
+              return (
+                <g key={`${phase}-${mi}`}>
+                  <line x1={prevRight} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" />
+                  <line x1={prevRight} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" />
+                  <line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" />
+                  <line x1={midX} y1={pY} x2={curLeft} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" />
+                </g>
+              );
+            });
+          })}
+        </svg>
+
+        {/* Round columns */}
+        {phases.map((phase, pi) => {
+          const phaseMatches = byPhase[phase];
+          const colX = pi * (CARD_W + H_GAP);
+          return (
+            <div key={phase}>
+              <div style={{ position: "absolute", left: colX, top: 0, width: CARD_W, textAlign: "center", fontSize: 9, fontWeight: 700, color: C.accent, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                {PHASE_LABELS[phase] || phase}
+              </div>
+              {phaseMatches.map((m, mi) => {
+                const topY = matchY(pi, mi) + LABEL_H;
+                const home = teams.find((t) => t.id === m.homeId);
+                const away = teams.find((t) => t.id === m.awayId);
+                const isDone = m.status === "completed";
+                const isLiveM = m.status === "live";
+                const winner = getMatchWinner(m);
+                return (
+                  <div key={m.id} style={{ position: "absolute", left: colX, top: topY, width: CARD_W }}>
+                    <div style={{
+                      background: C.card,
+                      border: `1px solid ${isLiveM ? C.live + "55" : isDone ? C.accent + "44" : C.border}`,
+                      borderRadius: 8, overflow: "hidden",
+                    }}>
+                      {[{ tid: m.homeId, score: m.scoreHome, name: home?.name }, { tid: m.awayId, score: m.scoreAway, name: away?.name }].map((side, si) => (
+                        <div key={si} style={{
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "7px 9px",
+                          borderBottom: si === 0 ? `1px solid ${C.border}` : "none",
+                          background: winner === side.tid ? C.accentBg : "transparent",
+                        }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: winner === side.tid ? C.accent : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {side.name || "TBD"}
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: 18, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                            {isDone || isLiveM ? (side.score ?? 0) : "–"}
+                          </span>
+                        </div>
+                      ))}
+                      {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
+                        <div style={{ fontSize: 9, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} pen)</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// RESET PANEL
+// ============================================================
+function ResetPanel({ dispatch }) {
+  const [confirm, setConfirm] = useState(false);
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState(false);
+
+  if (!confirm) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Btn v="danger" onClick={() => setConfirm(true)}>🗑 Full Reset</Btn>
+        <span style={{ fontSize: 11, color: C.text3 }}>Clears all teams, matches and groups</span>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p style={{ fontSize: 12, color: C.orange, marginBottom: 8, fontWeight: 600 }}>Enter reset password to confirm full wipe:</p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Input value={pw} onChange={(v) => { setPw(v); setErr(false); }} placeholder="Reset password" type="password" style={{ maxWidth: 200 }} />
+        <Btn v="danger" onClick={() => {
+          if (pw === RESET_PASSWORD) {
+            dispatch({ type: "RESET" });
+            setConfirm(false);
+            setPw("");
+          } else {
+            setErr(true);
+          }
+        }}>Confirm Reset</Btn>
+        <Btn v="ghost" onClick={() => { setConfirm(false); setPw(""); setErr(false); }}>Cancel</Btn>
+      </div>
+      {err && <p style={{ color: C.red, fontSize: 11, marginTop: 6 }}>Incorrect password</p>}
+    </div>
+  );
+}
+
+// ============================================================
 // VIEW 1: ADMIN
 // ============================================================
 function AdminView({ state, dispatch }) {
@@ -849,24 +1013,32 @@ function AdminView({ state, dispatch }) {
             const phaseOrder = ["R16", "QF", "SF", "Final"];
             const phaseLabels = { R16: "Round of 16", QF: "Quarter-Finals", SF: "Semi-Finals", Final: "Final" };
             const phases = phaseOrder.filter((p) => ko.some((m) => m.phase === p));
-            return phases.map((ph) => {
-              const roundMatches = ko.filter((m) => m.phase === ph);
-              const allDone = roundMatches.every((m) => m.status === "completed");
-              const allHaveWinners = roundMatches.every((m) => getMatchWinner(m) !== null);
-              return (
-                <div key={ph} style={{ marginBottom: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                    <Badge color={C.orange}>{phaseLabels[ph] || ph}</Badge>
-                    {allDone && allHaveWinners && <Badge color={C.live}>✓ Complete</Badge>}
-                    {allDone && !allHaveWinners && <Badge color={C.red}>⚠ Needs penalties</Badge>}
-                    {!allDone && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: ph, comp } })} style={{ color: C.orange }}>🎲 Fill (Demo)</Btn>}
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
-                    {roundMatches.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
-                  </div>
+            return (
+              <div>
+                <KnockoutBracket matches={ko} teams={state.teams} />
+                <div style={{ marginTop: 28, borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 13, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FONT_DISPLAY }}>Score Entry</h3>
+                  {phases.map((ph) => {
+                    const roundMatches = ko.filter((m) => m.phase === ph);
+                    const allDone = roundMatches.every((m) => m.status === "completed");
+                    const allHaveWinners = roundMatches.every((m) => getMatchWinner(m) !== null);
+                    return (
+                      <div key={ph} style={{ marginBottom: 18 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                          <Badge color={C.orange}>{phaseLabels[ph] || ph}</Badge>
+                          {allDone && allHaveWinners && <Badge color={C.live}>✓ Complete</Badge>}
+                          {allDone && !allHaveWinners && <Badge color={C.red}>⚠ Needs penalties</Badge>}
+                          {!allDone && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: ph, comp } })} style={{ color: C.orange }}>🎲 Fill (Demo)</Btn>}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
+                          {roundMatches.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            });
+              </div>
+            );
           })()}
         </Section>
       )}
@@ -884,6 +1056,10 @@ function AdminView({ state, dispatch }) {
           <Card style={{ marginTop: 14, textAlign: "center" }}>
             <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in another tab for the display.</p>
           </Card>
+          <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
+            <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Danger Zone</h3>
+            <ResetPanel dispatch={dispatch} />
+          </div>
         </Section>
       )}
     </div>
@@ -1075,7 +1251,7 @@ function ScreenView({ state }) {
       case "men-groups": return all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase === "group");
       case "women-groups": return all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "women");
       case "men-knockout": return all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase !== "group");
-      case "finals": return all.filter((m) => m.phase === "Final" || m.phase === "SF");
+      case "finals": return all.filter((m) => m.phase === "Final");
       case "standings": return [];
       default: return all;
     }
@@ -1133,16 +1309,35 @@ function ScreenView({ state }) {
           <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Fields</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 7 }}>
             {FIELDS.map((f) => {
-              const fm = live.find((m) => m.fieldId === f.id)
-                || upcoming.find((m) => m.fieldId === f.id)
-                || [...filtered].sort((a, b) => (b.slotIndex ?? 0) - (a.slotIndex ?? 0)).find((m) => m.fieldId === f.id && m.status === "completed");
+              const activeSlot = getCurrentActiveSlot();
+              // Find: active-slot match > live > next upcoming > last completed (all matches, not just filtered)
+              const fm =
+                all.find((m) => m.fieldId === f.id && m.slotIndex === activeSlot) ||
+                all.find((m) => m.fieldId === f.id && m.status === "live") ||
+                [...all].filter((m) => m.fieldId === f.id && m.status === "scheduled" && (m.slotIndex ?? -1) >= activeSlot)
+                  .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0))[0] ||
+                [...all].filter((m) => m.fieldId === f.id && m.status === "completed")
+                  .sort((a, b) => (b.slotIndex ?? 0) - (a.slotIndex ?? 0))[0];
               const home = fm ? state.teams.find((t) => t.id === fm.homeId) : null;
               const away = fm ? state.teams.find((t) => t.id === fm.awayId) : null;
               const isL = fm?.status === "live";
+              const isCurrent = fm && fm.slotIndex === activeSlot;
+              const timeStr = fm ? slotToTime(fm.slotIndex ?? 0) : null;
               return (
-                <div key={f.id} style={{ background: isL ? `${C.live}06` : C.card, border: `1px solid ${isL ? C.live + "28" : C.border}`, borderRadius: 10, padding: 10, textAlign: "center" }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", marginBottom: 5, letterSpacing: "0.08em" }}>{f.sponsor}</div>
-                  {fm ? (<><div style={{ fontSize: 11, fontWeight: 700, color: C.white }}>{home?.name}</div><div style={{ fontSize: 15, fontWeight: 900, color: isL ? C.live : C.text3, margin: "2px 0" }}>{isL ? `${fm.scoreHome} – ${fm.scoreAway}` : "vs"}</div><div style={{ fontSize: 11, fontWeight: 700, color: C.white }}>{away?.name}</div></>) : (<div style={{ fontSize: 10, color: C.text3, padding: "6px 0" }}>—</div>)}
+                <div key={f.id} style={{ background: isL ? `${C.live}08` : isCurrent ? C.accentBg : C.card, border: `1px solid ${isL ? C.live + "40" : isCurrent ? C.accent + "33" : C.border}`, borderRadius: 10, padding: "9px 8px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: C.accent, textTransform: "uppercase", marginBottom: 3, letterSpacing: "0.08em" }}>{f.sponsor}</div>
+                  {timeStr && <div style={{ fontSize: 9, color: isL ? C.live : isCurrent ? C.accent : C.text3, fontWeight: 700, marginBottom: 4 }}>{timeStr}</div>}
+                  {fm ? (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name}</div>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: isL ? C.live : C.text3, margin: "2px 0" }}>
+                        {isL ? `${fm.scoreHome} – ${fm.scoreAway}` : "vs"}
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name}</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 10, color: C.text3, padding: "6px 0" }}>—</div>
+                  )}
                 </div>
               );
             })}
@@ -1191,7 +1386,86 @@ function ScreenView({ state }) {
         );
       })()}
 
-      {view !== "all" && view !== "standings" && filtered.filter((m) => m.status === "completed").length > 0 && live.length === 0 && (
+      {view === "men-knockout" && filtered.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Knockout Bracket</h2>
+          <KnockoutBracket matches={filtered} teams={state.teams} />
+        </div>
+      )}
+
+      {view === "finals" && (() => {
+        const menFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "men");
+        const womenFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "women");
+        const finalMatches = [womenFinal, menFinal].filter(Boolean);
+
+        if (!finalMatches.length) {
+          return (
+            <div style={{ textAlign: "center", padding: 60 }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🏆</div>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 32, color: C.white, marginBottom: 8 }}>Finals</h2>
+              <p style={{ color: C.text3, fontSize: 16 }}>Finals not yet determined — complete the knockout stage first.</p>
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ textAlign: "center", marginBottom: 28 }}>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 26, color: C.accent, letterSpacing: "-0.02em", margin: 0 }}>🏆 Finals</h2>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: finalMatches.length > 1 ? "1fr 1fr" : "600px", justifyContent: "center", gap: 24, maxWidth: 1000, margin: "0 auto" }}>
+              {finalMatches.map((m) => {
+                const home = state.teams.find((t) => t.id === m.homeId);
+                const away = state.teams.find((t) => t.id === m.awayId);
+                const comp = state.teams.find((t) => t.id === m.homeId)?.competition;
+                const isDone = m.status === "completed";
+                const isLiveM = m.status === "live";
+                const winner = getMatchWinner(m);
+                return (
+                  <div key={m.id} style={{
+                    background: `linear-gradient(135deg, ${C.card}, ${C.accentBg})`,
+                    border: `2px solid ${isLiveM ? C.live : isDone ? C.accent : C.border2}`,
+                    borderRadius: 20, padding: "28px 24px", textAlign: "center",
+                  }}>
+                    <div style={{ marginBottom: 16 }}>
+                      <Badge color={comp === "women" ? C.blue : C.orange}>{comp === "women" ? "Women's Final" : "Men's Final"}</Badge>
+                      {isLiveM && <span style={{ marginLeft: 8, fontSize: 10, color: C.live, fontWeight: 700, animation: "pulse 1.5s infinite" }}>● LIVE</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ flex: 1, textAlign: "right" }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: winner === m.homeId ? C.accent : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>
+                          {home?.name || "TBD"}
+                        </div>
+                        {winner === m.homeId && <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 4 }}>🏆 WINNER</div>}
+                      </div>
+                      <div style={{ minWidth: 80, textAlign: "center" }}>
+                        {isDone || isLiveM ? (
+                          <div style={{ fontSize: 48, fontWeight: 900, color: C.white, fontFamily: FONT_DISPLAY, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+                            {m.scoreHome}–{m.scoreAway}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 24, color: C.text3, fontWeight: 700 }}>vs</div>
+                        )}
+                        {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
+                          <div style={{ fontSize: 13, color: C.orange, fontWeight: 700, marginTop: 4 }}>({m.penHome}–{m.penAway} pen)</div>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, textAlign: "left" }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: winner === m.awayId ? C.accent : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>
+                          {away?.name || "TBD"}
+                        </div>
+                        {winner === m.awayId && <div style={{ fontSize: 11, color: C.accent, fontWeight: 700, marginTop: 4 }}>🏆 WINNER</div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {view !== "all" && view !== "standings" && view !== "finals" && filtered.filter((m) => m.status === "completed").length > 0 && live.length === 0 && (
         <div style={{ marginBottom: 24 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Recent Results</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 6 }}>
@@ -1200,7 +1474,7 @@ function ScreenView({ state }) {
         </div>
       )}
 
-      {upcoming.length > 0 && view !== "standings" && view !== "all" && (
+      {upcoming.length > 0 && view !== "standings" && view !== "all" && view !== "finals" && (
         <div>
           <h2 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.1em", fontFamily: FONT_DISPLAY }}>Upcoming</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 6 }}>
