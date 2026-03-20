@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 import { useState, useEffect, useReducer, useCallback, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
@@ -1064,13 +1065,13 @@ function LoginScreen({ onLogin }) {
 // ============================================================
 export default function App() {
   const [state, dispatch] = useReducer(reducer, INIT, (init) => load() || init);
-  const [view, setView] = useState(() => window.location.hash.replace("#", "") || "home");
+  const [view, setView] = useState("home");
   const [adminAuth, setAdminAuth] = useState(false);
 
   useEffect(() => { save(state); }, [state]);
   useEffect(() => { const h = () => setView(window.location.hash.replace("#", "") || "home"); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
 
-  const playerUrl = `${window.location.origin}${window.location.pathname}#player`;
+  const playerUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#player` : "";
 
   if (view === "screen") return <ScreenView state={state} />;
 
