@@ -184,16 +184,19 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
     }
 
     if (slotMatches.length === 0 && unscheduled.length > 0) {
-      // Force-advance to next slot if nothing could fit (all fields occupied or rest needed)
-      // Only force-schedule if there's room on this slot
-      if (fieldsUsed.size < NUM_FIELDS) {
-        const m = unscheduled.pop();
+      // Nothing fit due to rest constraints — force-fill up to NUM_FIELDS ignoring rest
+      for (let i = unscheduled.length - 1; i >= 0 && fieldsUsed.size < NUM_FIELDS; i--) {
+        const m = unscheduled[i];
+        if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
         const fid = nextField(fieldsUsed);
         m.slotIndex = slot;
         m.fieldId = fid;
+        teamsInSlot.add(m.homeId);
+        teamsInSlot.add(m.awayId);
+        fieldsUsed.add(fid);
         slotMatches.push(m);
+        unscheduled.splice(i, 1);
       }
-      // else just advance to next slot — don't exceed 8 fields
     }
 
     scheduled.push(...slotMatches);
@@ -374,6 +377,12 @@ function reducer(state, action) {
     }
     case "GEN_KNOCKOUT": {
       const comp = action.payload;
+      const alreadyHasKO = state.matches.some((m) => {
+        if (m.phase === "group") return false;
+        const t = state.teams.find((x) => x.id === m.homeId);
+        return t?.competition === comp;
+      });
+      if (alreadyHasKO) return state;
       const compGroups = state.groups.filter((g) => {
         const t = state.teams.find((x) => x.id === g.teamIds[0]);
         return t?.competition === comp;
@@ -414,6 +423,39 @@ function reducer(state, action) {
     }
     case "SCREEN_VIEW":
       return { ...state, screenView: action.payload };
+    case "LOAD":
+      return { ...action.payload };
+    case "FILL_SCORES": {
+      const { phase, comp: fillComp } = action.payload;
+      let newMatches = state.matches.map((m) => {
+        const t = state.teams.find((x) => x.id === m.homeId);
+        if (t?.competition !== fillComp) return m;
+        if (m.phase !== phase) return m;
+        if (m.status === "completed") return m;
+        let sh = Math.floor(Math.random() * 4);
+        let sa = Math.floor(Math.random() * 4);
+        if (phase !== "group" && sh === sa) { sh > 0 ? sa-- : sh++; }
+        return { ...m, scoreHome: sh, scoreAway: sa, status: "completed" };
+      });
+      if (phase !== "group") {
+        const next = nextRoundName(phase);
+        if (next) {
+          const nextExists = newMatches.some((m) => {
+            const t = state.teams.find((x) => x.id === m.homeId);
+            return m.phase === next && t?.competition === fillComp;
+          });
+          const roundComplete = newMatches.filter((m) => {
+            const t = state.teams.find((x) => x.id === m.homeId);
+            return m.phase === phase && t?.competition === fillComp;
+          }).every((m) => m.status === "completed");
+          if (roundComplete && !nextExists) {
+            const nextRoundMatches = generateNextRound(newMatches, phase, newMatches);
+            newMatches = [...newMatches, ...nextRoundMatches];
+          }
+        }
+      }
+      return { ...state, matches: newMatches };
+    }
     default:
       return state;
   }
@@ -708,6 +750,8 @@ function AdminView({ state, dispatch }) {
   const groups = state.groups.filter((g) => { const t = state.teams.find((x) => x.id === g.teamIds[0]); return t?.competition === comp; });
   const matches = state.matches.filter((m) => { const t = state.teams.find((x) => x.id === m.homeId); return t?.competition === comp; });
   const maxSlot = matches.length > 0 ? Math.max(...matches.map((m) => m.slotIndex ?? 0)) : -1;
+  const hasKO = matches.some((m) => m.phase !== "group");
+  const groupMatchesPending = matches.some((m) => m.phase === "group" && m.status !== "completed");
 
   const tabList = isW
     ? [{ id: "teams", label: "Teams" }, { id: "schedule", label: "Schedule" }, { id: "standings", label: "Standings" }, { id: "display", label: "Screen" }]
@@ -731,7 +775,8 @@ function AdminView({ state, dispatch }) {
           </div>
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <Btn v="secondary" onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Generate Groups + Schedule</Btn>
-            {!isW && groups.length > 0 && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Generate Knockout</Btn>}
+            {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Generate Knockout</Btn>}
+            {groupMatchesPending && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: "group", comp } })} style={{ color: C.orange }}>🎲 Fill Group Scores (Demo)</Btn>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
             {teams.map((t) => (
@@ -783,7 +828,7 @@ function AdminView({ state, dispatch }) {
 
       {tab === "knockout" && !isW && (
         <Section title="Knockout Stage" sub="Next round auto-generates when all matches in a round are completed">
-          <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} style={{ marginBottom: 14 }}>🏆 Generate from Standings</Btn>
+          <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasKO} style={{ marginBottom: 14 }}>🏆 Generate from Standings</Btn>
           {(() => {
             const ko = matches.filter((m) => m.phase !== "group");
             if (!ko.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
@@ -796,10 +841,11 @@ function AdminView({ state, dispatch }) {
               const allHaveWinners = roundMatches.every((m) => getMatchWinner(m) !== null);
               return (
                 <div key={ph} style={{ marginBottom: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                     <Badge color={C.orange}>{phaseLabels[ph] || ph}</Badge>
                     {allDone && allHaveWinners && <Badge color={C.live}>✓ Complete</Badge>}
                     {allDone && !allHaveWinners && <Badge color={C.red}>⚠ Needs penalties</Badge>}
+                    {!allDone && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: ph, comp } })} style={{ color: C.orange }}>🎲 Fill (Demo)</Btn>}
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
                     {roundMatches.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
@@ -814,7 +860,7 @@ function AdminView({ state, dispatch }) {
       {tab === "display" && (
         <Section title="Big Screen Control" sub="Choose what to display">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "all", label: "All Matches" }, { id: "men-groups", label: "Men Groups" }, { id: "women-groups", label: "Women Groups" }, { id: "men-knockout", label: "Men Knockout" }, { id: "standings", label: "Standings" }, { id: "finals", label: "Finals" }].map((v) => (
+            {[{ id: "welcome", label: "Welcome Screen" }, { id: "all", label: "All Matches" }, { id: "men-groups", label: "Men Groups" }, { id: "women-groups", label: "Women Groups" }, { id: "men-knockout", label: "Men Knockout" }, { id: "standings", label: "Standings" }, { id: "finals", label: "Finals" }].map((v) => (
               <Card key={v.id} onClick={() => dispatch({ type: "SCREEN_VIEW", payload: v.id })}
                 style={{ cursor: "pointer", textAlign: "center", padding: 14, border: state.screenView === v.id ? `2px solid ${C.accent}` : `1px solid ${C.border}`, background: state.screenView === v.id ? C.accentBg : C.card }}>
                 <span style={{ fontWeight: 700, fontSize: 12, color: state.screenView === v.id ? C.accent : C.text }}>{v.label}</span>
@@ -928,6 +974,79 @@ function PlayerView({ state }) {
 }
 
 // ============================================================
+// WELCOME SCREEN
+// ============================================================
+function WelcomeScreenDisplay() {
+  return (
+    <div style={{ background: C.bg, minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 60px", fontFamily: FONT_BODY }}>
+      <style>{GLOBAL_CSS}</style>
+      <div style={{ maxWidth: 1100, width: "100%", textAlign: "center" }}>
+        <div style={{ animation: "slideUp .6s ease" }}>
+          <Logo size="xl" />
+          <div style={{ marginTop: 16, marginBottom: 8 }}><EventTitle size="xl" /></div>
+          <p style={{ color: C.text2, fontSize: 20, margin: "4px 0" }}>6 April 2026 · Gent</p>
+          <p style={{ color: C.accent, fontSize: 13, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 40 }}>We play for more</p>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 32, animation: "slideUp .6s ease .2s both" }}>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 32, textAlign: "left" }}>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 24, color: C.accent, marginBottom: 20, letterSpacing: "-0.02em" }}>⏱ Match Format</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                { icon: "⚽", title: "10 min — Play", sub: "First half" },
+                { icon: "⏸", title: "5 min — Break", sub: "Half time" },
+                { icon: "⚽", title: "10 min — Play", sub: "Second half" },
+              ].map((item) => (
+                <div key={item.title} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 10, background: item.icon === "⏸" ? "#33333380" : C.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{item.icon}</div>
+                  <div>
+                    <p style={{ color: C.white, fontWeight: 700, fontSize: 16, margin: 0 }}>{item.title}</p>
+                    <p style={{ color: C.text2, fontSize: 13, margin: 0 }}>{item.sub}</p>
+                  </div>
+                </div>
+              ))}
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginTop: 4 }}>
+                <p style={{ color: C.accent, fontWeight: 700, fontSize: 15, margin: "0 0 4px" }}>Total block: 30 min</p>
+                <p style={{ color: C.text2, fontSize: 13, margin: 0 }}>Next match starts 5 min after the block ends</p>
+              </div>
+            </div>
+          </div>
+          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 32, textAlign: "left" }}>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 24, color: C.accent, marginBottom: 20, letterSpacing: "-0.02em" }}>🏆 Tournament Format</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <Badge color={C.blue}>Women's Cup</Badge>
+                </div>
+                <p style={{ color: C.text, fontSize: 14, margin: "0 0 4px" }}>Group stage — every team plays at least 3 matches</p>
+                <p style={{ color: C.text2, fontSize: 12, margin: 0 }}>Best teams qualify for the finals ceremony</p>
+              </div>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <Badge color={C.orange}>Men's Cup</Badge>
+                </div>
+                <p style={{ color: C.text, fontSize: 14, margin: "0 0 8px" }}>Group stage — every team plays at least 3 matches</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {["Round of 16", "Quarter-Finals", "Semi-Finals", "Final"].map((r) => (
+                    <span key={r} style={{ fontSize: 11, color: C.accent, background: C.accentBg, padding: "3px 10px", borderRadius: 6, fontWeight: 700 }}>{r}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
+                <p style={{ color: C.live, fontWeight: 800, fontSize: 20, margin: "0 0 4px", fontFamily: FONT_DISPLAY }}>⚡ First kick-off at 11:00</p>
+                <p style={{ color: C.text2, fontSize: 13, margin: 0 }}>8 fields · up to 8 simultaneous matches</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{ animation: "slideUp .6s ease .4s both" }}>
+          <SponsorBar />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // VIEW 3: BIG SCREEN
 // ============================================================
 function ScreenView({ state }) {
@@ -935,6 +1054,7 @@ function ScreenView({ state }) {
   useEffect(() => { const iv = setInterval(() => setTick((t) => t + 1), POLL_INTERVAL); return () => clearInterval(iv); }, []);
 
   const view = state.screenView || "all";
+  if (view === "welcome") return <WelcomeScreenDisplay />;
   const all = state.matches;
   const getM = () => {
     switch (view) {
@@ -1070,6 +1190,11 @@ export default function App() {
 
   useEffect(() => { save(state); }, [state]);
   useEffect(() => { const h = () => setView(window.location.hash.replace("#", "") || "home"); window.addEventListener("hashchange", h); return () => window.removeEventListener("hashchange", h); }, []);
+  useEffect(() => {
+    if (view !== "screen") return;
+    const iv = setInterval(() => { const fresh = load(); if (fresh) dispatch({ type: "LOAD", payload: fresh }); }, POLL_INTERVAL);
+    return () => clearInterval(iv);
+  }, [view]);
 
   const playerUrl = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}#player` : "";
 
