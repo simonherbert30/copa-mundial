@@ -14,6 +14,7 @@ const RESET_PASSWORD = "kopa_reset";
 const NUM_FIELDS = 8;
 const SLOT_DURATION_MIN = 30;
 const REST_SLOTS = 1;
+const FINALS_SLOT = 13; // slot 13 = 11:00 + 13×30min = 17:30
 const MIN_MATCHES_PER_TEAM = 3;
 const POLL_INTERVAL = 3000;
 const START_HOUR = 11;
@@ -347,7 +348,10 @@ function generateNextRound(allMatches, completedRound, existingMatches) {
     slotIndex: null, fieldId: null, status: "scheduled", refTeamId: null,
   }));
   const maxSlot = existingMatches.length > 0 ? Math.max(...existingMatches.map((m) => m.slotIndex ?? 0)) + 2 : 0;
-  return scheduleMatches(newMatches, maxSlot, existingMatches);
+  let result = scheduleMatches(newMatches, maxSlot, existingMatches);
+  // Force Final matches to FINALS_SLOT (17:30)
+  result = result.map((m) => m.phase === "Final" ? { ...m, slotIndex: FINALS_SLOT } : m);
+  return result;
 }
 
 // Assign referee teams to matches: for each slot, find teams not playing → assign round-robin as refs
@@ -433,7 +437,9 @@ function reducer(state, action) {
       });
       const ko = generateKnockout(compGroups, state.matches, state.teams, comp);
       const maxSlot = state.matches.length > 0 ? Math.max(...state.matches.map((m) => m.slotIndex ?? 0)) + 2 : 0;
-      const scheduled = scheduleMatches(ko, maxSlot, state.matches);
+      let scheduled = scheduleMatches(ko, maxSlot, state.matches);
+      // Force Final matches to FINALS_SLOT (17:30)
+      scheduled = scheduled.map((m) => m.phase === "Final" ? { ...m, slotIndex: FINALS_SLOT } : m);
       return { ...state, matches: [...state.matches, ...scheduled] };
     }
     case "SCORE": {
@@ -864,17 +870,17 @@ function Notification({ msg, type = "info" }) {
 // ============================================================
 // KNOCKOUT BRACKET
 // ============================================================
-function KnockoutBracket({ matches, teams, dispatch, showField = false }) {
+function KnockoutBracket({ matches, teams, dispatch, showField = false, bigScreen = false }) {
   const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
   if (!phases.length) {
     return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
   }
 
-  const CARD_W = 196;
-  const CARD_H = 62;
-  const V_GAP = 16;
-  const H_GAP = 40;
-  const LABEL_H = 26;
+  const CARD_W = bigScreen ? 320 : 196;
+  const CARD_H = bigScreen ? 96 : 62;
+  const V_GAP = bigScreen ? 24 : 16;
+  const H_GAP = bigScreen ? 60 : 40;
+  const LABEL_H = bigScreen ? 40 : 26;
   const PHASE_LABELS = { R16: "Round of 16", QF: "Quarter-Finals", SF: "Semi-Finals", Final: "Final" };
 
   const byPhase = {};
@@ -927,7 +933,7 @@ function KnockoutBracket({ matches, teams, dispatch, showField = false }) {
           const colX = pi * (CARD_W + H_GAP);
           return (
             <div key={phase}>
-              <div style={{ position: "absolute", left: colX, top: 0, width: CARD_W, textAlign: "center", fontSize: 9, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              <div style={{ position: "absolute", left: colX, top: 0, width: CARD_W, textAlign: "center", fontSize: bigScreen ? 16 : 9, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
                 {PHASE_LABELS[phase] || phase}
               </div>
               {phaseMatches.map((m, mi) => {
@@ -942,27 +948,27 @@ function KnockoutBracket({ matches, teams, dispatch, showField = false }) {
                     <div style={{
                       background: C.card,
                       border: `1px solid ${isLiveM ? C.live + "55" : isDone ? C.gold + "44" : C.border}`,
-                      borderRadius: 8, overflow: "hidden",
+                      borderRadius: bigScreen ? 12 : 8, overflow: "hidden",
                     }}>
                       {[{ tid: m.homeId, score: m.scoreHome, name: home?.name }, { tid: m.awayId, score: m.scoreAway, name: away?.name }].map((side, si) => (
                         <div key={si} style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center",
-                          padding: "7px 9px",
+                          padding: bigScreen ? "12px 14px" : "7px 9px",
                           borderBottom: si === 0 ? `1px solid ${C.border}` : "none",
                           background: winner === side.tid ? C.goldBg : "transparent",
                         }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: bigScreen ? 20 : 11, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {side.name || "TBD"}
                           </span>
-                          <span style={{ fontSize: 13, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: 18, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                          <span style={{ fontSize: bigScreen ? 24 : 13, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: bigScreen ? 28 : 18, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
                             {isDone || isLiveM ? (side.score ?? 0) : "–"}
                           </span>
                         </div>
                       ))}
                       {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
-                        <div style={{ fontSize: 9, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} pen)</div>
+                        <div style={{ fontSize: bigScreen ? 14 : 9, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} pen)</div>
                       )}
-                      {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: 8, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {f.name} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
+                      {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: bigScreen ? 13 : 8, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {f.name} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
                     </div>
                   </div>
                 );
@@ -1063,10 +1069,10 @@ function AdminView({ state, dispatch }) {
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <Btn v="secondary" onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Generate Groups + Schedule</Btn>
+            <Btn v="secondary" disabled={isLocked} onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Generate Groups + Schedule</Btn>
             {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Generate Knockout</Btn>}
             {isW && groups.length > 0 && !hasKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Generate Women's Final</Btn>}
-            {groups.length > 0 && <Btn v="secondary" onClick={() => dispatch({ type: "ASSIGN_REFS" })}>👔 Assign Referees</Btn>}
+            {groups.length > 0 && (() => { const hasRefs = state.matches.some((m) => m.refTeamId); return <Btn v={hasRefs ? "ghost" : "secondary"} onClick={() => dispatch({ type: "ASSIGN_REFS" })}>{hasRefs ? "👔 Refs Assigned ✓" : "👔 Assign Referees"}</Btn>; })()}
             {groupMatchesPending && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: "group", comp } })} style={{ color: C.orange }}>🎲 Fill Group Scores (Demo)</Btn>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
@@ -1476,7 +1482,6 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <FieldsBar matches={all} />
         <div style={{ flex: 1, overflow: "hidden", padding: "12px 28px", display: "flex", flexDirection: "column", gap: 14 }}>
           {activeMatches.length > 0 && (
             <div style={{ flex: 1, minHeight: 0 }}>
@@ -1498,11 +1503,11 @@ function ScreenView({ state }) {
                     <div key={m.id} style={{ background: isL ? `${C.live}0d` : C.card, border: `1px solid ${isL ? C.live + "50" : C.border}`, borderRadius: 10, padding: "10px 14px" }}>
                       <div style={{ fontSize: 18, color: isL ? C.live : C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Group" : m.phase}</div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: isDone || isL ? 48 : 24, fontWeight: 900, color: isDone || isL ? C.white : C.text3, padding: "0 10px", fontVariantNumeric: "tabular-nums", fontFamily: FONT_DISPLAY, minWidth: 100, textAlign: "center" }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: isDone || isL ? 48 : 24, fontWeight: 900, color: isDone || isL ? C.white : C.text3, padding: "0 10px", fontVariantNumeric: "tabular-nums", fontFamily: FONT_DISPLAY, minWidth: 100, textAlign: "center", flexShrink: 0 }}>
                           {isDone || isL ? `${m.scoreHome ?? 0}–${m.scoreAway ?? 0}` : "vs"}
                         </span>
-                        <span style={{ flex: 1, fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
+                        <span style={{ flex: 1, fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
                       {ref && <div style={{ fontSize: 14, color: C.text3, marginTop: 4, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
                     </div>
@@ -1556,7 +1561,6 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <FieldsBar matches={all} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 28px", overflow: "hidden" }}>
           <div style={{ flex: 1, minHeight: 0, marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
@@ -1576,9 +1580,9 @@ function ScreenView({ state }) {
                         {field?.sponsor} · {field?.name} · {m.phase === "group" ? "Group" : m.phase}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 33, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 27, fontWeight: 700, color: C.text3, padding: "2px 14px", fontFamily: FONT_DISPLAY }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 33, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 33, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 27, fontWeight: 700, color: C.text3, padding: "2px 14px", fontFamily: FONT_DISPLAY, flexShrink: 0 }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 33, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
                       {ref && <div style={{ fontSize: 16, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
                     </div>
@@ -1605,9 +1609,9 @@ function ScreenView({ state }) {
                     <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 18px" }}>
                       <div style={{ fontSize: 18, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{field?.sponsor} · {field?.name}</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 28, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 22, color: C.text3, padding: "0 8px" }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 28, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 28, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 22, color: C.text3, padding: "0 8px", flexShrink: 0 }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 28, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
                       {ref && <div style={{ fontSize: 14, color: C.text3, marginTop: 4, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
                     </div>
@@ -1670,7 +1674,6 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <FieldsBar matches={compMatches} />
         <div style={{ flex: 1, overflow: "hidden", padding: "12px 28px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${compColor}30`, flexShrink: 0 }}>
             <div style={{ width: 5, height: 28, background: compColor, borderRadius: 2 }} />
@@ -1692,11 +1695,10 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <FieldsBar matches={all} />
         <div style={{ flex: 1, overflow: "hidden", padding: "12px 28px", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, overflow: "hidden" }}>
             {koMatches.length > 0 ? (
-              <KnockoutBracket matches={koMatches} teams={state.teams} showField={true} />
+              <KnockoutBracket matches={koMatches} teams={state.teams} showField={true} bigScreen={true} />
             ) : (
               <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 22 }}>Complete group stage to generate knockout.</div>
             )}
@@ -1715,7 +1717,6 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <FieldsBar matches={all} />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px" }}>
           {finalMatches.length === 0 ? (
             <div style={{ textAlign: "center" }}>
@@ -1744,7 +1745,7 @@ function ScreenView({ state }) {
                       </div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
                         <div style={{ flex: 1, textAlign: "right" }}>
-                          <div style={{ fontSize: 48, fontWeight: 800, color: winner === m.homeId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>{home?.name || "TBD"}</div>
+                          <div style={{ fontSize: 48, fontWeight: 800, color: winner === m.homeId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
                           {winner === m.homeId && <div style={{ fontSize: 24, color: C.gold, fontWeight: 700, marginTop: 6 }}>🏆 WINNER</div>}
                         </div>
                         <div style={{ minWidth: 110, textAlign: "center" }}>
@@ -1758,7 +1759,7 @@ function ScreenView({ state }) {
                           )}
                         </div>
                         <div style={{ flex: 1, textAlign: "left" }}>
-                          <div style={{ fontSize: 48, fontWeight: 800, color: winner === m.awayId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1 }}>{away?.name || "TBD"}</div>
+                          <div style={{ fontSize: 48, fontWeight: 800, color: winner === m.awayId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
                           {winner === m.awayId && <div style={{ fontSize: 24, color: C.gold, fontWeight: 700, marginTop: 6 }}>🏆 WINNER</div>}
                         </div>
                       </div>
