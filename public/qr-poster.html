@@ -1,11 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Copa Mundial — QR Poster</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+  @font-face { font-family: 'Cubano'; src: url('/fonts/Cubano.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+  @font-face { font-family: 'A4SPEED'; src: url('/fonts/A4SPEED-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -15,9 +16,9 @@
   }
 
   body {
-    background: #8B1E26;
+    background: #111e39;
     color: #fff;
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'A4SPEED', sans-serif;
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -29,7 +30,7 @@
   .poster {
     width: 297mm;
     min-height: 420mm;
-    background: #8B1E26;
+    background: #111e39;
     padding: 40mm 30mm;
     display: flex;
     flex-direction: column;
@@ -45,41 +46,39 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse at 50% 30%, rgba(212,168,67,0.10) 0%, transparent 60%);
+    background: radial-gradient(ellipse at 50% 30%, rgba(255,202,0,0.08) 0%, transparent 60%);
     pointer-events: none;
   }
 
-  .logo {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
-    font-size: 28pt;
-    color: #fff;
-    letter-spacing: -0.04em;
+  .logo-img {
+    height: 28mm;
+    width: auto;
+    object-fit: contain;
     margin-bottom: 8mm;
   }
-  .logo .dot { color: #D4A843; }
 
   .event-title {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
+    font-family: 'Cubano', sans-serif;
+    font-weight: 400;
     font-size: 52pt;
     color: #fff;
-    letter-spacing: -0.04em;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
     line-height: 1.05;
     margin-bottom: 4mm;
   }
-  .event-title .accent { color: #D4A843; }
+  .event-title .accent { color: #ffca00; }
 
   .event-meta {
     font-size: 14pt;
     color: rgba(255,255,255,0.7);
     margin-bottom: 3mm;
-    font-weight: 500;
+    font-weight: 700;
   }
 
   .tagline {
     font-size: 11pt;
-    color: #D4A843;
+    color: #ffca00;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -91,7 +90,7 @@
     border-radius: 16px;
     padding: 12mm;
     margin-bottom: 10mm;
-    box-shadow: 0 0 80px rgba(212,168,67,0.25);
+    box-shadow: 0 0 80px rgba(255,202,0,0.20);
   }
 
   .qr-container img {
@@ -101,12 +100,13 @@
   }
 
   .scan-text {
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
+    font-family: 'Cubano', sans-serif;
+    font-weight: 400;
     font-size: 20pt;
     color: #fff;
     margin-bottom: 3mm;
-    letter-spacing: -0.02em;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
 
   .scan-sub {
@@ -118,7 +118,7 @@
   }
 
   .url-display {
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'A4SPEED', sans-serif;
     font-size: 10pt;
     color: rgba(255,255,255,0.5);
     background: rgba(0,0,0,0.25);
@@ -145,16 +145,16 @@
     text-align: center;
   }
   .step-num {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
+    font-family: 'Cubano', sans-serif;
+    font-weight: 400;
     font-size: 18pt;
-    color: #D4A843;
+    color: #ffca00;
     margin-bottom: 2mm;
   }
   .step-label {
     font-size: 9pt;
     color: rgba(255,255,255,0.7);
-    font-weight: 500;
+    font-weight: 700;
     line-height: 1.4;
   }
 
@@ -168,7 +168,7 @@
   .sponsor {
     font-size: 8pt;
     color: rgba(255,255,255,0.5);
-    font-weight: 600;
+    font-weight: 700;
     padding: 1.5mm 4mm;
     border-radius: 4px;
     background: rgba(0,0,0,0.2);
@@ -179,10 +179,10 @@
     font-size: 8pt;
     color: rgba(255,255,255,0.35);
   }
-  .footer .clavert { color: #D4A843; font-weight: 700; }
+  .footer .clavert { color: #ffca00; font-weight: 700; }
 
   @media print {
-    body { background: #8B1E26; }
+    body { background: #111e39 !important; }
     .poster { page-break-inside: avoid; }
   }
 </style>
@@ -190,22 +190,22 @@
 <body>
 
 <div class="poster">
-  <div class="logo">Kopa<span class="dot">.</span></div>
+  <img class="logo-img" src="/branding/Kopa Events/Logos/PNG/Logo kopa white.png" alt="Kopa Events" />
 
   <div class="event-title">Copa <span class="accent">Mundial</span></div>
 
-  <div class="event-meta">6 April 2026 · Gent</div>
+  <div class="event-meta">6 april 2026 · Gent</div>
 
-  <div class="tagline">We play for more</div>
+  <div class="tagline">We spelen voor meer</div>
 
   <div class="qr-container">
-    <img id="qr-img" src="" alt="QR Code — Scan to join" />
+    <img id="qr-img" src="" alt="QR Code — Scan om mee te doen" />
   </div>
 
-  <div class="scan-text">Scan to follow your team</div>
+  <div class="scan-text">Scan om je team te volgen</div>
 
   <div class="scan-sub">
-    See your matches, live scores, field assignments and standings — all on your phone.
+    Bekijk je wedstrijden, live scores, veldindeling en stand — rechtstreeks op je telefoon.
   </div>
 
   <div class="url-display" id="url-display"></div>
@@ -213,19 +213,19 @@
   <div class="steps">
     <div class="step">
       <div class="step-num">1</div>
-      <div class="step-label">Scan the<br>QR code</div>
+      <div class="step-label">Scan de<br>QR-code</div>
     </div>
     <div class="step">
       <div class="step-num">2</div>
-      <div class="step-label">Pick your<br>competition</div>
+      <div class="step-label">Kies je<br>competitie</div>
     </div>
     <div class="step">
       <div class="step-num">3</div>
-      <div class="step-label">Select<br>your team</div>
+      <div class="step-label">Selecteer<br>je team</div>
     </div>
     <div class="step">
       <div class="step-num">4</div>
-      <div class="step-label">Follow<br>live scores</div>
+      <div class="step-label">Volg de<br>live scores</div>
     </div>
   </div>
 
@@ -251,19 +251,15 @@
 
 <script>
   (function() {
-    // Base URL: dynamically use current origin + path (without /qr-poster.html)
     var baseUrl = window.location.origin + window.location.pathname.replace('/qr-poster.html', '');
-    // Ensure no trailing slash
     baseUrl = baseUrl.replace(/\/$/, '');
 
-    // Try to read tournament state from localStorage
     var playerUrl = baseUrl + '#player';
     try {
       var stored = localStorage.getItem('copa_mundial');
       if (stored) {
         var state = JSON.parse(stored);
         if (state && state.teams && state.teams.length > 0) {
-          // Replicate encodeTeamsForUrl logic: encode teams only
           var compact = { t: state.teams.map(function(t) { return [t.name, t.competition === 'men' ? 0 : 1]; }) };
           var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
           playerUrl = baseUrl + '?d=' + encoded + '#player';
@@ -271,7 +267,6 @@
       }
     } catch(e) {}
 
-    // Build QR code URL
     var qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(playerUrl);
 
     document.getElementById('qr-img').src = qrApiUrl;

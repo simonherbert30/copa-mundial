@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Copa Mundial — Officieel Reglement</title>
+  <style>
+    @font-face { font-family: 'Cubano'; src: url('public/fonts/Cubano.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+    @font-face { font-family: 'A4SPEED'; src: url('public/fonts/A4SPEED-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #111e39;
+      --card:     #1a2d52;
+      --dark:     #0d1728;
+      --gold:     #ffca00;
+      --gold-bg:  rgba(255,202,0,0.14);
+      --gold-border: rgba(255,202,0,0.30);
+      --red:      #e81e25;
+      --white:    #ffffff;
+      --cream:    #f4f0ea;
+      --text2:    rgba(255,255,255,0.75);
+      --text3:    rgba(255,255,255,0.45);
+      --border:   rgba(255,255,255,0.10);
+      --border2:  rgba(255,255,255,0.20);
+      --blue:     #72c4ff;
+      --orange:   #ffab40;
+      --live:     #00e676;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--white);
+      font-family: 'A4SPEED', sans-serif;
+      font-size: 13pt;
+      line-height: 1.6;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ---- PAGE LAYOUT ---- */
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 48px 40px 60px;
+    }
+
+    /* ---- HEADER ---- */
+    .header {
+      text-align: center;
+      margin-bottom: 48px;
+      padding-bottom: 32px;
+      border-bottom: 2px solid var(--gold-border);
+    }
+
+    .logo-wordmark {
+      font-family: 'Cubano', sans-serif;
+      font-weight: 800;
+      font-size: 56pt;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      color: var(--white);
+    }
+
+    .logo-wordmark span { color: var(--gold); }
+
+    .event-title {
+      font-family: 'Cubano', sans-serif;
+      font-weight: 800;
+      font-size: 38pt;
+      letter-spacing: -0.03em;
+      margin-top: 8px;
+      color: var(--white);
+    }
+
+    .event-title span { color: var(--gold); }
+
+    .event-meta {
+      color: var(--text2);
+      font-size: 14pt;
+      margin-top: 8px;
+    }
+
+    .tagline {
+      color: var(--gold);
+      font-size: 9pt;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+
+    .doc-title {
+      margin-top: 20px;
+      display: inline-block;
+      background: var(--gold-bg);
+      border: 1px solid var(--gold-border);
+      border-radius: 8px;
+      padding: 6px 22px;
+      font-family: 'Cubano', sans-serif;
+      font-weight: 700;
+      font-size: 12pt;
+      color: var(--gold);
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+    }
+
+    /* ---- SECTION ---- */
+    .section {
+      margin-bottom: 36px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--border2);
+    }
+
+    .section-bar {
+      width: 5px;
+      height: 32px;
+      border-radius: 3px;
+      background: var(--gold);
+      flex-shrink: 0;
+    }
+
+    .section-bar.blue  { background: var(--blue); }
+    .section-bar.orange { background: var(--orange); }
+
+    .section-title {
+      font-family: 'Cubano', sans-serif;
+      font-weight: 800;
+      font-size: 20pt;
+      color: var(--white);
+      letter-spacing: -0.02em;
+    }
+
+    /* ---- CARD ---- */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 14px;
+    }
+
+    .card h3 {
+      font-family: 'Cubano', sans-serif;
+      font-weight: 700;
+      font-size: 13pt;
+      color: var(--gold);
+      margin-bottom: 10px;
+      letter-spacing: -0.01em;
+    }
+
+    .card p, .card li {
+      color: var(--text2);
+      margin-bottom: 6px;
+      font-size: 12pt;
+    }
+
+    .card ul, .card ol {
+      padding-left: 20px;
+    }
+
+    .card li { margin-bottom: 4px; }
+
+    /* ---- BADGE ---- */
+    .badge {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-size: 9pt;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .badge-gold   { color: var(--gold);   background: var(--gold-bg);   border: 1px solid var(--gold-border); }
+    .badge-blue   { color: var(--blue);   background: rgba(114,196,255,0.12); border: 1px solid rgba(114,196,255,0.25); }
+    .badge-orange { color: var(--orange); background: rgba(255,171,64,0.12);  border: 1px solid rgba(255,171,64,0.25); }
+
+    /* ---- TWO COLUMNS ---- */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    /* ---- TABLE ---- */
+    .rule-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11pt;
+      margin-bottom: 10px;
+    }
+
+    .rule-table th {
+      text-align: left;
+      padding: 8px 12px;
+      color: var(--text3);
+      font-size: 9pt;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .rule-table td {
+      padding: 8px 12px;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    .rule-table tr:last-child td { border-bottom: none; }
+
+    .rule-table .highlight td { background: var(--gold-bg); color: var(--gold); font-weight: 600; }
+
+    /* ---- HIGHLIGHT BOX ---- */
+    .highlight-box {
+      background: var(--gold-bg);
+      border: 1px solid var(--gold-border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+      color: var(--gold);
+      font-weight: 600;
+      font-size: 12pt;
+    }
+
+    .highlight-box.blue {
+      background: rgba(114,196,255,0.10);
+      border-color: rgba(114,196,255,0.25);
+      color: var(--blue);
+    }
+
+    .highlight-box.orange {
+      background: rgba(255,171,64,0.10);
+      border-color: rgba(255,171,64,0.25);
+      color: var(--orange);
+    }
+
+    /* ---- DIVIDER ---- */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 28px 0;
+    }
+
+    /* ---- FOOTER ---- */
+    .footer {
+      text-align: center;
+      margin-top: 52px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--text3);
+      font-size: 10pt;
+    }
+
+    .footer span { color: var(--gold); font-weight: 700; }
+
+    /* ---- PRINT ---- */
+    @media print {
+      body { background: var(--bg) !important; }
+      .page { padding: 24px 28px 40px; }
+      .section { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div style="display:flex;justify-content:center;margin-bottom:16px">
+      <img src="public/branding/Kopa Events/Logos/PNG/Logo kopa white.png" alt="Kopa Events" style="height:72px;width:auto;object-fit:contain" />
+    </div>
+    <div class="event-title">Copa <span>Mundial</span></div>
+    <p class="event-meta">6 april 2026 · Gent</p>
+    <p class="tagline">We spelen voor meer</p>
+    <div class="doc-title">Officieel Toernooireglement</div>
+  </div>
+
+  <!-- 1. ALGEMEEN -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar"></div>
+      <h2 class="section-title">1. Algemeen</h2>
+    </div>
+    <div class="card">
+      <p>Copa Mundial is een ééndaags voetbaltoernooi georganiseerd door Kopa Events. Het toernooi bestaat uit twee afzonderlijke competities: een <strong>Mannencompetitie</strong> en een <strong>Vrouwencompetitie</strong>.</p>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <h3>📍 Locatie &amp; Datum</h3>
+        <p>6 april 2026</p>
+        <p>Gent, België</p>
+        <p>8 velden beschikbaar</p>
+      </div>
+      <div class="card">
+        <h3>⏰ Tijdschema</h3>
+        <p>Eerste aftrap: <strong>11:00</strong></p>
+        <p>Finale(s): <strong>17:30</strong></p>
+        <p>Rondes van 30 minuten</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. WEDSTRIJDFORMAAT -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar"></div>
+      <h2 class="section-title">2. Wedstrijdformaat</h2>
+    </div>
+    <div class="card">
+      <h3>⏱ Tijdsindeling per wedstrijd</h3>
+      <table class="rule-table">
+        <thead>
+          <tr><th>Periode</th><th>Duur</th><th>Omschrijving</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Eerste helft</td><td>10 minuten</td><td>Speeltijd</td></tr>
+          <tr><td>Rust</td><td>5 minuten</td><td>Pauze</td></tr>
+          <tr><td>Tweede helft</td><td>10 minuten</td><td>Speeltijd</td></tr>
+          <tr class="highlight"><td><strong>Totaal blok</strong></td><td><strong>30 minuten</strong></td><td>Incl. wissel van ploegen</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:8px; font-size:11pt;">De volgende wedstrijd start onmiddellijk na het einde van het blok van 30 minuten. Scheidsrechters staan klaar bij elke veldwisseling.</p>
+    </div>
+    <div class="highlight-box">
+      ⚡ Tot 8 wedstrijden vinden simultaan plaats op 8 verschillende velden.
+    </div>
+  </div>
+
+  <!-- 3. VROUWENCOMPETITIE -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar blue"></div>
+      <h2 class="section-title">3. Vrouwencompetitie</h2>
+    </div>
+    <div class="highlight-box blue">
+      <span class="badge badge-blue">Vrouwenbeker</span>&nbsp;&nbsp;
+      Alle teams spelen één keer tegen elkaar (round-robin), gevolgd door één finale.
+    </div>
+
+    <div class="card">
+      <h3>Groepsfase — Round-robin</h3>
+      <ul>
+        <li>Alle deelnemende vrouwenteams worden in <strong>één groep</strong> ingedeeld.</li>
+        <li>Elke ploeg speelt precies <strong>één wedstrijd tegen elk ander team</strong>.</li>
+        <li>Bij 4 teams: 6 wedstrijden in totaal.</li>
+        <li>De volgorde in de groepsstand bepaalt wie doorgaat naar de finale.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Kwalificatie voor de finale</h3>
+      <ul>
+        <li>De <strong>top 2 teams</strong> van de groepsstand gaan door naar de finale.</li>
+        <li>Bij gelijk aantal punten wordt de onderlinge uitslag gebruikt als eerste tiebreaker.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3>Puntentelling groepsfase</h3>
+      <table class="rule-table">
+        <thead><tr><th>Resultaat</th><th>Punten</th></tr></thead>
+        <tbody>
+          <tr><td>Overwinning</td><td>3 punten</td></tr>
+          <tr><td>Gelijkspel</td><td>1 punt per team</td></tr>
+          <tr><td>Verlies</td><td>0 punten</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Tiebreakers groepsstand (bij gelijke punten)</h3>
+      <ol>
+        <li>Resultaat van de onderlinge wedstrijd</li>
+        <li>Doelsaldo (gescoorde doelen minus tegendoelen)</li>
+        <li>Meeste gescoorde doelen</li>
+        <li>Loting</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h3>🏆 Vrouwenfinale</h3>
+      <ul>
+        <li>Eén finalewedstrijd tussen de nummers 1 en 2 van de groepsstand.</li>
+        <li>Bij gelijkspel na speeltijd worden <strong>strafschoppen</strong> genomen tot er een winnaar is.</li>
+        <li>De finale vindt plaats om <strong>17:30</strong>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 4. MANNENCOMPETITIE -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar orange"></div>
+      <h2 class="section-title">4. Mannencompetitie</h2>
+    </div>
+    <div class="highlight-box orange">
+      <span class="badge badge-orange">Mannenbeker</span>&nbsp;&nbsp;
+      Groepsfase → Kwartfinales → Halve finales → Finale
+    </div>
+
+    <!-- 4.1 Groepen -->
+    <div class="card">
+      <h3>4.1 Groepsindeling</h3>
+      <ul>
+        <li>De mannenteams worden verdeeld over <strong>4 groepen</strong> van doorgaans 4 à 5 ploegen.</li>
+        <li>De verdeling gebeurt door loting (willekeurig).</li>
+        <li>Bij een afwijkend aantal ingeschreven teams (door afzeggingen of late inschrijvingen) wordt het aantal groepen automatisch herberekend zodat de groepen zo gelijk mogelijk zijn. Het systeem verdeelt teams in groepen van maximaal 5.</li>
+      </ul>
+      <table class="rule-table" style="margin-top:10px;">
+        <thead><tr><th>Aantal teams</th><th>Groepen</th><th>Indeling</th></tr></thead>
+        <tbody>
+          <tr><td>16 teams</td><td>4 groepen</td><td>4 × 4</td></tr>
+          <tr><td>17 teams</td><td>4 groepen</td><td>3 × 4 + 1 × 5</td></tr>
+          <tr><td>18 teams</td><td>4 groepen</td><td>2 × 4 + 2 × 5</td></tr>
+          <tr><td>19 teams</td><td>4 groepen</td><td>1 × 4 + 3 × 5</td></tr>
+          <tr><td>20 teams</td><td>4 groepen</td><td>4 × 5</td></tr>
+          <tr><td>21+ teams</td><td>5 groepen</td><td>automatisch herberekend</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 4.2 Groepsfase -->
+    <div class="card">
+      <h3>4.2 Groepsfase</h3>
+      <ul>
+        <li>In de groepsfase speelt elke ploeg minstens <strong>3 wedstrijden</strong>.</li>
+        <li>Alle ploegen in een groep spelen (indien mogelijk) een volledige round-robin onderling.</li>
+        <li>Indien door de groepsgrootte een team minder dan 3 wedstrijden heeft, worden <strong>bonuswedstrijden</strong> ingepland tegen teams uit dezelfde of aangrenzende groepen.</li>
+      </ul>
+    </div>
+
+    <!-- 4.3 Puntentelling -->
+    <div class="card">
+      <h3>4.3 Puntentelling groepsfase</h3>
+      <table class="rule-table">
+        <thead><tr><th>Resultaat</th><th>Punten</th></tr></thead>
+        <tbody>
+          <tr><td>Overwinning</td><td>3 punten</td></tr>
+          <tr><td>Gelijkspel</td><td>1 punt per team</td></tr>
+          <tr><td>Verlies</td><td>0 punten</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 4.4 Tiebreakers -->
+    <div class="card">
+      <h3>4.4 Tiebreakers groepsstand (bij gelijke punten)</h3>
+      <ol>
+        <li>Resultaat van de onderlinge wedstrijd(en)</li>
+        <li>Doelsaldo (gescoorde doelen minus tegendoelen)</li>
+        <li>Meeste gescoorde doelen</li>
+        <li>Loting</li>
+      </ol>
+    </div>
+
+    <!-- 4.5 Kwalificatie voor knockout -->
+    <div class="card">
+      <h3>4.5 Kwalificatie voor de knockoutfase</h3>
+      <p style="margin-bottom:10px;">De <strong>8 beste teams</strong> uit de groepsfase gaan door naar de kwartfinales:</p>
+      <ul>
+        <li>De <strong>nummers 1 én 2</strong> van elke groep kwalificeren zich automatisch.</li>
+        <li>Bij 4 groepen levert dit 8 teams op → directe kwartfinales.</li>
+        <li>Indien door afzeggingen slechts 3 groepen overblijven: de nummers 1 en 2 van elke groep (6 teams) + de <strong>2 beste nummers 3</strong> van alle groepen gaan door.</li>
+      </ul>
+
+      <h3 style="margin-top:16px;">Selectie beste nummers 3 (indien van toepassing)</h3>
+      <p style="margin-bottom:8px;">De beste nummers 3 worden vergeleken op basis van:</p>
+      <ol>
+        <li>Meeste punten</li>
+        <li>Beste doelsaldo</li>
+        <li>Meeste gescoorde doelen</li>
+        <li>Loting</li>
+      </ol>
+
+      <div style="margin-top:14px; background:var(--dark); border-radius:8px; padding:12px 16px;">
+        <p style="color:var(--gold); font-weight:700; font-size:11pt; margin-bottom:6px;">Beugel voor de kwartfinales (8 teams)</p>
+        <p style="font-size:10.5pt;">Opzet: winnaar groep 1 vs. runner-up groep 4 | winnaar groep 2 vs. runner-up groep 3 | etc.<br/>
+        De exacte loting wordt bepaald door het systeem na afsluiting van de groepsfase.</p>
+      </div>
+    </div>
+
+    <!-- 4.6 Knockoutfase -->
+    <div class="card">
+      <h3>4.6 Knockoutfase — Spelregels</h3>
+      <table class="rule-table">
+        <thead><tr><th>Ronde</th><th>Teams</th><th>Bij gelijkspel</th></tr></thead>
+        <tbody>
+          <tr><td>Kwartfinales (QF)</td><td>8 → 4</td><td>Strafschoppen</td></tr>
+          <tr><td>Halve finales (HF)</td><td>4 → 2</td><td>Strafschoppen</td></tr>
+          <tr class="highlight"><td><strong>Finale</strong></td><td><strong>2 → winnaar</strong></td><td><strong>Strafschoppen</strong></td></tr>
+        </tbody>
+      </table>
+      <ul style="margin-top:10px;">
+        <li>In de knockoutfase is er <strong>geen gelijkspel</strong> mogelijk. Bij gelijke stand na reguliere speeltijd worden strafschoppen genomen.</li>
+        <li>Elk uitgespeeld team staat bij de strafschoppen afwisselend te schieten tot er een verschil is (sudden death strafschoppen).</li>
+        <li>De volgende ronde wordt automatisch gegenereerd zodra alle wedstrijden van de huidige ronde afgerond zijn.</li>
+        <li>De finale wordt om <strong>17:30</strong> gespeeld.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 5. SCHEIDSRECHTERS -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar"></div>
+      <h2 class="section-title">5. Scheidsrechters</h2>
+    </div>
+    <div class="card">
+      <ul>
+        <li>Elke wedstrijd heeft een <strong>scheidsrechtersteam</strong> dat bestaat uit een ploeg die op dat tijdstip zelf niet aan het spelen is.</li>
+        <li>De fluittaak wordt zo eerlijk mogelijk verdeeld: het systeem wijst scheidsrechters toe via round-robin (elke ploeg fluit ongeveer evenveel keer).</li>
+        <li>De aangewezen scheidsrechtersploeg staat vermeld op het wedstrijdscherm en in de app.</li>
+        <li>Beslissingen van de scheidsrechter op het veld zijn definitief.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 6. VELDEN & SPONSOR -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar"></div>
+      <h2 class="section-title">6. Velden</h2>
+    </div>
+    <div class="card">
+      <p>Het toernooi maakt gebruik van <strong>8 genummerde velden</strong>, elk gesponsord door een partner van Kopa Events. De veldnamen en sponsors worden weergegeven op het grote scherm en in de app.</p>
+      <p style="margin-top:8px;">De veldindeling per wedstrijd wordt automatisch bepaald bij het genereren van het schema.</p>
+    </div>
+  </div>
+
+  <!-- 7. GEDRAG & FAIR PLAY -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar"></div>
+      <h2 class="section-title">7. Gedrag &amp; Fair Play</h2>
+    </div>
+    <div class="card">
+      <ul>
+        <li>Alle spelers en begeleiders worden verwacht zich sportief te gedragen tegenover tegenstanders, scheidsrechters en organisatie.</li>
+        <li>Grof spel, beledigingen of onsportief gedrag kunnen leiden tot uitsluiting van de wedstrijd of het toernooi.</li>
+        <li>De organisatie behoudt zich het recht voor om bij grove overtredingen of onsportief gedrag een team te diskwalificeren.</li>
+        <li>Beslissingen van de organisatie zijn definitief en niet aanvechtbaar.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 8. AANPASSINGEN BIJ AFZEGGINGEN OF EXTRA TEAMS -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-bar"></div>
+      <h2 class="section-title">8. Aanpassingen bij afzeggingen of extra teams</h2>
+    </div>
+    <div class="card">
+      <h3>Teams die zich op de dag zelf afzeggen</h3>
+      <ul>
+        <li>Als een team zich op de dag van het toernooi afzegt, worden de reeds geplande wedstrijden van dat team als <strong>walkover</strong> toegewezen aan de tegenstander (3–0 overwinning).</li>
+        <li>Het schema wordt indien nodig herberekend.</li>
+        <li>De kwalificatieregels blijven ongewijzigd: het systeem herberekent automatisch wie doorgaat op basis van de bijgewerkte stand.</li>
+      </ul>
+      <h3 style="margin-top:14px;">Extra teams die zich op de dag zelf inschrijven</h3>
+      <ul>
+        <li>Extra teams kunnen worden toegevoegd <em>voor</em> het genereren van het schema. Eenmaal het schema is gegenereerd, kunnen geen nieuwe teams meer worden toegevoegd.</li>
+        <li>De groepsindeling wordt automatisch herberekend bij het toevoegen van extra teams.</li>
+      </ul>
+    </div>
+    <div class="highlight-box">
+      ℹ️ De kwalificatieregels (top 2 per groep + eventueel beste nummers 3) zijn zo ontworpen dat ze correct werken bij 3 tot 6 groepen.
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <p>Officieel reglement — Copa Mundial 2026 · Gent</p>
+    <p style="margin-top:4px;">Ontwikkeld door <span>Clavert Consulting</span> voor Kopa Events</p>
+  </div>
+
+</div>
+</body>
+</html>

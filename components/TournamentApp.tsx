@@ -22,7 +22,7 @@ const START_MIN = 0;
 
 const FIELDS = Array.from({ length: NUM_FIELDS }, (_, i) => ({
   id: i + 1,
-  name: `Field ${i + 1}`,
+  name: `Veld ${i + 1}`,
   sponsor: ["Integra", "Break Point", "CAPS", "Jouer.", "McAlson", "BLAGEUR", "Fourchette", "VICAR"][i],
 }));
 
@@ -33,12 +33,12 @@ const SPONSORS = [
 ];
 
 // --- SEED DATA ---
-const SEED_WOMEN = ["Brazil W", "Germany W", "Japan W", "France W", "Spain W", "England W"];
+const SEED_WOMEN = ["Brazil V", "Germany V", "France V", "Spain V"];
 const SEED_MEN = [
   "Brazil", "Germany", "Argentina", "France", "Spain", "England",
-  "Portugal", "Netherlands", "Italy", "Belgium", "Croatia", "Morocco",
-  "Japan", "South Korea", "USA", "Mexico", "Uruguay", "Colombia",
-  "Denmark", "Switzerland",
+  "Portugal", "Nederland", "Italië", "België", "Kroatië", "Marokko",
+  "Japan", "Zuid-Korea", "USA", "Mexico", "Uruguay", "Colombia",
+  "Denemarken",
 ];
 
 // --- UTILS ---
@@ -75,7 +75,7 @@ function buildGroups(teams, maxPerGroup = 4) {
   const nGroups = Math.ceil(s.length / maxPerGroup);
   const groups = Array.from({ length: nGroups }, (_, i) => ({
     id: uid(),
-    name: `Group ${String.fromCharCode(65 + i)}`,
+    name: `Groep ${String.fromCharCode(65 + i)}`,
     teamIds: [],
   }));
   s.forEach((t, i) => groups[i % nGroups].teamIds.push(t.id));
@@ -414,7 +414,7 @@ function reducer(state, action) {
         const t = state.teams.find((x) => x.id === m.homeId);
         return t?.competition !== comp;
       });
-      const maxPerGroup = comp === "women" ? compTeams.length : 4;
+      const maxPerGroup = comp === "women" ? compTeams.length : 5;
       const newGroups = buildGroups(compTeams, maxPerGroup);
       let groupMatches = buildGroupMatches(newGroups);
       const extraMatches = ensureMinMatches(groupMatches, newGroups, compTeams);
@@ -554,7 +554,7 @@ function decodeStateFromUrl(encoded: string) {
       id: String(i), name: t[0], competition: t[1] === 0 ? "men" : "women",
     }));
     const groups = (compact.g || []).map((g, i) => ({
-      id: String(i + 10000), name: g[0] || `Group ${String.fromCharCode(65 + i)}`,
+      id: String(i + 10000), name: g[0] || `Groep ${String.fromCharCode(65 + i)}`,
       teamIds: (g[1] || []).map(String),
     }));
     const matches = (compact.m || []).map((m, i) => ({
@@ -594,32 +594,35 @@ function encodeTeamsForUrl(state) {
 // DESIGN SYSTEM — Kopa Events branding
 // ============================================================
 const C = {
-  bg: "#8B1E26",          // Kopa red — main background
-  card: "#6B1820",        // Darker red for cards
-  input: "#4a1018",       // Very dark red for inputs
-  border: "rgba(255,255,255,0.12)",  // Subtle white border
-  border2: "rgba(255,255,255,0.22)", // More visible white border
-  accent: "#D4A843",      // Kopa gold (primary accent on red bg)
-  accentLight: "#e0bc5f",
-  accentBg: "rgba(212,168,67,0.18)",
-  gold: "#D4A843",
-  goldLight: "#e0bc5f",
-  goldBg: "rgba(212,168,67,0.18)",
+  bg: "#111e39",          // Kopa navy — main background
+  card: "#1a2d52",        // Lighter navy for cards
+  input: "#0d1728",       // Very dark navy for inputs
+  border: "rgba(255,255,255,0.10)",  // Subtle white border
+  border2: "rgba(255,255,255,0.20)", // More visible white border
+  accent: "#ffca00",      // Kopa yellow (primary accent on navy bg)
+  accentLight: "#ffd740",
+  accentBg: "rgba(255,202,0,0.15)",
+  gold: "#ffca00",
+  goldLight: "#ffd740",
+  goldBg: "rgba(255,202,0,0.15)",
+  red: "#e81e25",         // Kopa red (secondary accent)
+  redBg: "rgba(232,30,37,0.18)",
+  cream: "#f4f0ea",
   white: "#fff",
   text: "#ffffff",
   text2: "rgba(255,255,255,0.7)",
   text3: "rgba(255,255,255,0.45)",
   live: "#00e676",
-  red: "#ff7070",
   blue: "#72c4ff",
   orange: "#ffab40",
 };
 
-const FONT_DISPLAY = "'Syne', sans-serif";
-const FONT_BODY = "'DM Sans', sans-serif";
+const FONT_DISPLAY = "'Cubano', sans-serif";
+const FONT_BODY = "'A4SPEED', sans-serif";
 
 const GLOBAL_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
+@font-face{font-family:'Cubano';src:url('/fonts/Cubano.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:'A4SPEED';src:url('/fonts/A4SPEED-Bold.ttf') format('truetype');font-weight:700;font-style:normal;font-display:swap}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:${C.bg};color:${C.text};font-family:${FONT_BODY};-webkit-font-smoothing:antialiased}
 input,button,select,textarea{font-family:inherit}
@@ -634,18 +637,20 @@ input,button,select,textarea{font-family:inherit}
 // ============================================================
 
 function Logo({ size = "md" }) {
-  const fs = { sm: 18, md: 28, lg: 48, xl: 72, xxl: 108 }[size] || 28;
+  const h = { sm: 24, md: 36, lg: 56, xl: 88, xxl: 128 }[size] || 36;
   return (
-    <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: fs, color: C.white, letterSpacing: "-0.04em", lineHeight: 1 }}>
-      Kopa<span style={{ color: C.gold }}>.</span>
-    </span>
+    <img
+      src="/branding/Kopa Events/Logos/PNG/Logo kopa white.png"
+      alt="Kopa Events"
+      style={{ height: h, width: "auto", display: "block", objectFit: "contain" }}
+    />
   );
 }
 
 function EventTitle({ size = "lg" }) {
   const fs = { xl: 64, lg: 38, md: 24, sm: 18, xxl: 96 }[size] || 38;
   return (
-    <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: fs, color: C.white, letterSpacing: "-0.04em", lineHeight: 1.05, margin: 0 }}>
+    <h1 style={{ fontFamily: FONT_DISPLAY, fontWeight: 400, fontSize: fs, color: C.white, letterSpacing: "0.02em", lineHeight: 1.05, margin: 0, textTransform: "uppercase" }}>
       Copa <span style={{ color: C.gold }}>Mundial</span>
     </h1>
   );
@@ -712,7 +717,7 @@ function Section({ title, sub, right, children }) {
 }
 
 function Footer() {
-  return <div style={{ textAlign: "center", padding: "24px 0 14px", fontSize: 11, color: C.text3, borderTop: `1px solid ${C.border}`, marginTop: 40 }}>Developed by <span style={{ color: C.gold, fontWeight: 700 }}>Clavert Consulting</span></div>;
+  return <div style={{ textAlign: "center", padding: "24px 0 14px", fontSize: 11, color: C.text3, borderTop: `1px solid ${C.border}`, marginTop: 40 }}>Ontwikkeld door <span style={{ color: C.gold, fontWeight: 700 }}>Clavert Consulting</span></div>;
 }
 
 function SponsorBar({ compact }) {
@@ -744,7 +749,7 @@ function MatchCard({ match, teams, compact, onScore, showField = true }) {
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
           <StatusDot status={match.status} />
           <span style={{ fontSize: 10, color: C.text3, textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.06em" }}>
-            {match.phase === "group" ? "Group" : match.phase}{isLive && <span style={{ color: C.live }}> · LIVE</span>}
+            {match.phase === "group" ? "Groep" : match.phase}{isLive && <span style={{ color: C.live }}> · LIVE</span>}
           </span>
         </div>
         {showField && field && <span style={{ fontSize: 10, color: C.text2, fontWeight: 600 }}>{field.sponsor}</span>}
@@ -766,7 +771,7 @@ function MatchCard({ match, teams, compact, onScore, showField = true }) {
         </div>
         <span style={{ flex: 1, fontSize: compact ? 13 : 15, fontWeight: 700, color: C.text }}>{away?.name || "TBD"}</span>
       </div>
-      {ref && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Ref: {ref.name}</div>}
+      {ref && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {ref.name}</div>}
       {onScore && !isDone && <ScoreEditor match={match} onScore={onScore} />}
     </Card>
   );
@@ -800,19 +805,19 @@ function ScoreEditor({ match, onScore }) {
         <Input value={sh} onChange={setSh} placeholder="H" type="number" style={{ width: 46, textAlign: "center", padding: "6px" }} />
         <span style={{ color: C.text3, fontSize: 12 }}>–</span>
         <Input value={sa} onChange={setSa} placeholder="A" type="number" style={{ width: 46, textAlign: "center", padding: "6px" }} />
-        <Btn sz="sm" onClick={() => submit("live")}>Live</Btn>
+        <Btn sz="sm" onClick={() => submit("live")}>Bezig</Btn>
         <Btn sz="sm" v="secondary" onClick={() => submit("completed")}
           disabled={needsPens && (ph === "" || pa === "" || +ph === +pa)}
         >FT</Btn>
       </div>
       {needsPens && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
-          <span style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 42 }}>Pens</span>
+          <span style={{ fontSize: 10, color: C.orange, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", minWidth: 42 }}>Strafsch.</span>
           <Input value={ph} onChange={setPh} placeholder="H" type="number" style={{ width: 46, textAlign: "center", padding: "6px", borderColor: C.orange + "40" }} />
           <span style={{ color: C.text3, fontSize: 12 }}>–</span>
           <Input value={pa} onChange={setPa} placeholder="A" type="number" style={{ width: 46, textAlign: "center", padding: "6px", borderColor: C.orange + "40" }} />
           {ph !== "" && pa !== "" && +ph === +pa && (
-            <span style={{ fontSize: 10, color: C.red, fontWeight: 600 }}>Can't be equal</span>
+            <span style={{ fontSize: 10, color: C.red, fontWeight: 600 }}>Mag niet gelijk zijn</span>
           )}
         </div>
       )}
@@ -827,7 +832,7 @@ function StandingsTable({ group, matches, teams, compact }) {
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "9px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 13, color: C.gold }}>{group.name}</span>
-        <span style={{ fontSize: 10, color: C.text3 }}>{group.teamIds.length} teams</span>
+        <span style={{ fontSize: 10, color: C.text3 }}>{group.teamIds.length} teams</span>{/* teams is same in Dutch */}
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: compact ? 11 : 13 }}>
@@ -873,15 +878,15 @@ function Notification({ msg, type = "info" }) {
 function KnockoutBracket({ matches, teams, dispatch, showField = false, bigScreen = false }) {
   const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
   if (!phases.length) {
-    return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
+    return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
   }
 
-  const CARD_W = bigScreen ? 320 : 196;
-  const CARD_H = bigScreen ? 96 : 62;
-  const V_GAP = bigScreen ? 24 : 16;
-  const H_GAP = bigScreen ? 60 : 40;
-  const LABEL_H = bigScreen ? 40 : 26;
-  const PHASE_LABELS = { R16: "Round of 16", QF: "Quarter-Finals", SF: "Semi-Finals", Final: "Final" };
+  const CARD_W = bigScreen ? 400 : 196;
+  const CARD_H = bigScreen ? 130 : 62;
+  const V_GAP = bigScreen ? 28 : 16;
+  const H_GAP = bigScreen ? 70 : 40;
+  const LABEL_H = bigScreen ? 52 : 26;
+  const PHASE_LABELS = { R16: "Ronde van 16", QF: "Kwartfinales", SF: "Halve finales", Final: "Finale" };
 
   const byPhase = {};
   phases.forEach((p) => { byPhase[p] = matches.filter((m) => m.phase === p); });
@@ -933,7 +938,7 @@ function KnockoutBracket({ matches, teams, dispatch, showField = false, bigScree
           const colX = pi * (CARD_W + H_GAP);
           return (
             <div key={phase}>
-              <div style={{ position: "absolute", left: colX, top: 0, width: CARD_W, textAlign: "center", fontSize: bigScreen ? 16 : 9, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              <div style={{ position: "absolute", left: colX, top: 0, width: CARD_W, textAlign: "center", fontSize: bigScreen ? 22 : 9, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>
                 {PHASE_LABELS[phase] || phase}
               </div>
               {phaseMatches.map((m, mi) => {
@@ -957,16 +962,16 @@ function KnockoutBracket({ matches, teams, dispatch, showField = false, bigScree
                           borderBottom: si === 0 ? `1px solid ${C.border}` : "none",
                           background: winner === side.tid ? C.goldBg : "transparent",
                         }}>
-                          <span style={{ fontSize: bigScreen ? 20 : 11, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: bigScreen ? 28 : 11, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {side.name || "TBD"}
                           </span>
-                          <span style={{ fontSize: bigScreen ? 24 : 13, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: bigScreen ? 28 : 18, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                          <span style={{ fontSize: bigScreen ? 34 : 13, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: bigScreen ? 36 : 18, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
                             {isDone || isLiveM ? (side.score ?? 0) : "–"}
                           </span>
                         </div>
                       ))}
                       {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
-                        <div style={{ fontSize: bigScreen ? 14 : 9, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} pen)</div>
+                        <div style={{ fontSize: bigScreen ? 18 : 9, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} strafsch.)</div>
                       )}
                       {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: bigScreen ? 13 : 8, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {f.name} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
                     </div>
@@ -992,17 +997,17 @@ function ResetPanel({ dispatch }) {
   if (!confirm) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Btn v="danger" onClick={() => setConfirm(true)}>🗑 Full Reset</Btn>
-        <span style={{ fontSize: 11, color: C.text3 }}>Clears all teams, matches and groups</span>
+        <Btn v="danger" onClick={() => setConfirm(true)}>🗑 Volledig Herstel</Btn>
+        <span style={{ fontSize: 11, color: C.text3 }}>Verwijdert alle teams, wedstrijden en groepen</span>
       </div>
     );
   }
 
   return (
     <div>
-      <p style={{ fontSize: 12, color: C.orange, marginBottom: 8, fontWeight: 600 }}>Enter reset password to confirm full wipe:</p>
+      <p style={{ fontSize: 12, color: C.orange, marginBottom: 8, fontWeight: 600 }}>Voer het herstelwachtwoord in ter bevestiging:</p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Input value={pw} onChange={(v) => { setPw(v); setErr(false); }} placeholder="Reset password" type="password" style={{ maxWidth: 200 }} />
+        <Input value={pw} onChange={(v) => { setPw(v); setErr(false); }} placeholder="Herstelwachtwoord" type="password" style={{ maxWidth: 200 }} />
         <Btn v="danger" onClick={() => {
           if (pw === RESET_PASSWORD) {
             dispatch({ type: "RESET" });
@@ -1011,10 +1016,10 @@ function ResetPanel({ dispatch }) {
           } else {
             setErr(true);
           }
-        }}>Confirm Reset</Btn>
-        <Btn v="ghost" onClick={() => { setConfirm(false); setPw(""); setErr(false); }}>Cancel</Btn>
+        }}>Bevestig Herstel</Btn>
+        <Btn v="ghost" onClick={() => { setConfirm(false); setPw(""); setErr(false); }}>Annuleer</Btn>
       </div>
-      {err && <p style={{ color: C.red, fontSize: 11, marginTop: 6 }}>Incorrect password</p>}
+      {err && <p style={{ color: C.red, fontSize: 11, marginTop: 6 }}>Ongeldig wachtwoord</p>}
     </div>
   );
 }
@@ -1039,10 +1044,10 @@ function AdminView({ state, dispatch }) {
 
   const tabList = [
     { id: "teams", label: "Teams" },
-    { id: "schedule", label: "Schedule" },
-    { id: "standings", label: "Standings" },
-    ...(hasKO ? [{ id: "knockout", label: isW ? "Final" : "Knockout" }] : []),
-    { id: "display", label: "Screen" },
+    { id: "schedule", label: "Schema" },
+    { id: "standings", label: "Stand" },
+    ...(hasKO ? [{ id: "knockout", label: isW ? "Finale" : "Knockout" }] : []),
+    { id: "display", label: "Scherm" },
   ];
 
   return (
@@ -1050,30 +1055,30 @@ function AdminView({ state, dispatch }) {
       <div style={{ marginBottom: 14 }}><Tabs tabs={tabList} active={tab} onChange={setTab} /></div>
       <div style={{ marginBottom: 14 }}>
         <Tabs tabs={[
-          { id: "men", label: `Men (${state.teams.filter((t) => t.competition === "men").length})` },
-          { id: "women", label: `Women (${state.teams.filter((t) => t.competition === "women").length})` },
+          { id: "men", label: `Mannen (${state.teams.filter((t) => t.competition === "men").length})` },
+          { id: "women", label: `Vrouwen (${state.teams.filter((t) => t.competition === "women").length})` },
         ]} active={comp} onChange={(c) => { setComp(c); if (c === "women" && tab === "knockout") setTab("standings"); }} />
       </div>
 
       {tab === "teams" && (
-        <Section title="Teams" sub={`${comp} · min ${MIN_MATCHES_PER_TEAM} matches per team · 30 min matches`}>
+        <Section title="Teams" sub={`${comp === "men" ? "mannen" : "vrouwen"} · min ${MIN_MATCHES_PER_TEAM} wedstrijden per team · 30 min per wedstrijd`}>
           {isLocked && (
             <div style={{ padding: "8px 14px", borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accent}22`, color: C.accent, fontSize: 11, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-              🔒 Tournament generated — teams are locked
+              🔒 Toernooi gegenereerd — teams zijn vergrendeld
             </div>
           )}
           {!isLocked && (
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              <Input value={newTeam} onChange={setNewTeam} placeholder="Team name..." />
-              <Btn onClick={() => { if (newTeam.trim()) { dispatch({ type: "ADD_TEAM", payload: { name: newTeam.trim(), competition: comp } }); setNewTeam(""); } }}>Add</Btn>
+              <Input value={newTeam} onChange={setNewTeam} placeholder="Teamnaam..." />
+              <Btn onClick={() => { if (newTeam.trim()) { dispatch({ type: "ADD_TEAM", payload: { name: newTeam.trim(), competition: comp } }); setNewTeam(""); } }}>Toevoegen</Btn>
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <Btn v="secondary" disabled={isLocked} onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Generate Groups + Schedule</Btn>
-            {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Generate Knockout</Btn>}
-            {isW && groups.length > 0 && !hasKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Generate Women's Final</Btn>}
-            {groups.length > 0 && (() => { const hasRefs = state.matches.some((m) => m.refTeamId); return <Btn v={hasRefs ? "ghost" : "secondary"} onClick={() => dispatch({ type: "ASSIGN_REFS" })}>{hasRefs ? "👔 Refs Assigned ✓" : "👔 Assign Referees"}</Btn>; })()}
-            {groupMatchesPending && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: "group", comp } })} style={{ color: C.orange }}>🎲 Fill Group Scores (Demo)</Btn>}
+            <Btn v="secondary" disabled={isLocked} onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Genereer Groepen + Schema</Btn>
+            {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Genereer Knockout</Btn>}
+            {isW && groups.length > 0 && !hasKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Genereer Vrouwen Finale</Btn>}
+            {groups.length > 0 && (() => { const hasRefs = state.matches.some((m) => m.refTeamId); return <Btn v={hasRefs ? "ghost" : "secondary"} onClick={() => dispatch({ type: "ASSIGN_REFS" })}>{hasRefs ? "👔 Scheidsrechters Toegewezen ✓" : "👔 Wijs Scheidsrechters Toe"}</Btn>; })()}
+            {groupMatchesPending && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: "group", comp } })} style={{ color: C.orange }}>🎲 Vul Groepsscores in (Demo)</Btn>}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
             {teams.map((t) => (
@@ -1085,24 +1090,24 @@ function AdminView({ state, dispatch }) {
           </div>
           {teams.length === 0 && (
             <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>
-              <p style={{ marginBottom: 10 }}>No teams yet.</p>
-              <Btn v="secondary" onClick={() => dispatch({ type: "SEED" })}>Load Seed Data (20M + 6W)</Btn>
+              <p style={{ marginBottom: 10 }}>Nog geen teams.</p>
+              <Btn v="secondary" onClick={() => dispatch({ type: "SEED" })}>Laad Testdata (19M + 4V)</Btn>
             </div>
           )}
         </Section>
       )}
 
       {tab === "schedule" && (
-        <Section title="Schedule" sub={`${matches.length} matches · ${maxSlot + 1} slots · 30 min · starts ${slotToTime(0)}`}>
+        <Section title="Schema" sub={`${matches.length} wedstrijden · ${maxSlot + 1} rondes · 30 min · start ${slotToTime(0)}`}>
           {Array.from({ length: maxSlot + 1 }, (_, si) => {
             const sm = matches.filter((m) => m.slotIndex === si);
             if (!sm.length) return null;
             return (
               <div key={si} style={{ marginBottom: 18 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <Badge>{`Slot ${si + 1}`}</Badge>
+                  <Badge>{`Ronde ${si + 1}`}</Badge>
                   <span style={{ fontSize: 13, color: C.text2, fontWeight: 600 }}>{slotToTime(si)}</span>
-                  <span style={{ fontSize: 10, color: C.text3 }}>{sm.length} match{sm.length > 1 ? "es" : ""}</span>
+                  <span style={{ fontSize: 10, color: C.text3 }}>{sm.length} wedstrijd{sm.length > 1 ? "en" : ""}</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
                   {sm.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
@@ -1110,33 +1115,33 @@ function AdminView({ state, dispatch }) {
               </div>
             );
           })}
-          {matches.length === 0 && <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Generate tournament first.</div>}
+          {matches.length === 0 && <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Genereer eerst het toernooi.</div>}
         </Section>
       )}
 
       {tab === "standings" && (
-        <Section title="Standings">
+        <Section title="Stand">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
             {groups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} />)}
           </div>
-          {groups.length === 0 && <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>No groups yet.</div>}
+          {groups.length === 0 && <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Nog geen groepen.</div>}
         </Section>
       )}
 
       {tab === "knockout" && (
-        <Section title={isW ? "Women's Final" : "Knockout Stage"} sub={isW ? "Top 2 teams from the group stage" : "Next round auto-generates when all matches in a round are completed"}>
-          {!isW && <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasKO} style={{ marginBottom: 14 }}>🏆 Generate from Standings</Btn>}
+        <Section title={isW ? "Vrouwen Finale" : "Knockoutfase"} sub={isW ? "Top 2 teams uit de groepsfase" : "Volgende ronde genereert automatisch als alle wedstrijden van een ronde voltooid zijn"}>
+          {!isW && <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasKO} style={{ marginBottom: 14 }}>🏆 Genereer vanuit Stand</Btn>}
           {(() => {
             const ko = matches.filter((m) => m.phase !== "group");
-            if (!ko.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Complete group stage first.</div>;
+            if (!ko.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
             const phaseOrder = ["R16", "QF", "SF", "Final"];
-            const phaseLabels = { R16: "Round of 16", QF: "Quarter-Finals", SF: "Semi-Finals", Final: "Final" };
+            const phaseLabels = { R16: "Ronde van 16", QF: "Kwartfinales", SF: "Halve finales", Final: "Finale" };
             const phases = phaseOrder.filter((p) => ko.some((m) => m.phase === p));
             return (
               <div>
                 <KnockoutBracket matches={ko} teams={state.teams} />
                 <div style={{ marginTop: 28, borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
-                  <h3 style={{ margin: "0 0 14px", fontSize: 13, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FONT_DISPLAY }}>Score Entry</h3>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 13, fontWeight: 700, color: C.text3, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FONT_DISPLAY }}>Scores Invoeren</h3>
                   {phases.map((ph) => {
                     const roundMatches = ko.filter((m) => m.phase === ph);
                     const allDone = roundMatches.every((m) => m.status === "completed");
@@ -1145,9 +1150,9 @@ function AdminView({ state, dispatch }) {
                       <div key={ph} style={{ marginBottom: 18 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                           <Badge color={C.orange}>{phaseLabels[ph] || ph}</Badge>
-                          {allDone && allHaveWinners && <Badge color={C.live}>✓ Complete</Badge>}
-                          {allDone && !allHaveWinners && <Badge color={C.red}>⚠ Needs penalties</Badge>}
-                          {!allDone && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: ph, comp } })} style={{ color: C.orange }}>🎲 Fill (Demo)</Btn>}
+                          {allDone && allHaveWinners && <Badge color={C.live}>✓ Voltooid</Badge>}
+                          {allDone && !allHaveWinners && <Badge color={C.red}>⚠ Strafschoppen vereist</Badge>}
+                          {!allDone && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: ph, comp } })} style={{ color: C.orange }}>🎲 Vul in (Demo)</Btn>}
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
                           {roundMatches.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
@@ -1163,9 +1168,9 @@ function AdminView({ state, dispatch }) {
       )}
 
       {tab === "display" && (
-        <Section title="Big Screen Control" sub="Choose what to display">
+        <Section title="Groot Scherm Beheer" sub="Kies wat weergegeven wordt">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welcome Screen" }, { id: "all", label: "All Matches" }, { id: "next-matches", label: "Next Matches" }, { id: "men-groups", label: "Men Groups" }, { id: "women-groups", label: "Women Groups" }, { id: "men-knockout", label: "Men Knockout" }, { id: "standings", label: "Standings" }, { id: "finals", label: "Finals" }].map((v) => (
+            {[{ id: "welcome", label: "Welkomstscherm" }, { id: "all", label: "Alle Wedstrijden" }, { id: "next-matches", label: "Volgende Wedstrijden" }, { id: "men-groups", label: "Mannen Groepen" }, { id: "women-groups", label: "Vrouwen Groepen" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => (
               <Card key={v.id} onClick={() => dispatch({ type: "SCREEN_VIEW", payload: v.id })}
                 style={{ cursor: "pointer", textAlign: "center", padding: 14, border: state.screenView === v.id ? `2px solid ${C.accent}` : `1px solid ${C.border}`, background: state.screenView === v.id ? C.accentBg : C.card }}>
                 <span style={{ fontWeight: 700, fontSize: 12, color: state.screenView === v.id ? C.accent : C.text }}>{v.label}</span>
@@ -1173,7 +1178,7 @@ function AdminView({ state, dispatch }) {
             ))}
           </div>
           <Card style={{ marginTop: 14, textAlign: "center" }}>
-            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in another tab or on a separate device for the display.</p>
+            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave.</p>
           </Card>
           {state.teams.length > 0 && (() => {
             const shareUrl = typeof window !== "undefined"
@@ -1186,29 +1191,29 @@ function AdminView({ state, dispatch }) {
               <>
                 <Card style={{ marginTop: 10 }}>
                   <p style={{ color: C.text2, fontSize: 12, marginBottom: 8 }}>
-                    🖥️ Big screen on a separate device — copy this link and open it on the screen computer:
+                    🖥️ Groot scherm op apart apparaat — kopieer deze link en open op de schermcomputer:
                   </p>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <input readOnly value={screenUrl} style={{ flex: 1, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 6, padding: "6px 10px", color: C.text3, fontSize: 10, minWidth: 0 }} />
-                    <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(screenUrl); }}>Copy</Btn>
+                    <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(screenUrl); }}>Kopieer</Btn>
                   </div>
-                  <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Re-copy and reload on the screen each time scores are updated.</p>
+                  <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Kopieer opnieuw en herlaad op het scherm elke keer als scores worden bijgewerkt.</p>
                 </Card>
                 <Card style={{ marginTop: 10 }}>
                   <p style={{ color: C.text2, fontSize: 12, marginBottom: 8 }}>
-                    📱 Share with players/supporters on other devices — copy this link and send via WhatsApp/text:
+                    📱 Deel met spelers/supporters — kopieer deze link en stuur via WhatsApp:
                   </p>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <input readOnly value={shareUrl} style={{ flex: 1, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 6, padding: "6px 10px", color: C.text3, fontSize: 10, minWidth: 0 }} />
-                    <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(shareUrl); }}>Copy</Btn>
+                    <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(shareUrl); }}>Kopieer</Btn>
                   </div>
-                  <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Re-copy this link each time scores are updated so players see the latest schedule.</p>
+                  <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Kopieer de link opnieuw elke keer als scores worden bijgewerkt zodat spelers het laatste schema zien.</p>
                 </Card>
               </>
             );
           })()}
           <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
-            <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Danger Zone</h3>
+            <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gevaarzone</h3>
             <ResetPanel dispatch={dispatch} />
           </div>
         </Section>
@@ -1232,7 +1237,7 @@ function PlayerView({ state }) {
     if (upcoming) {
       const opp = state.teams.find((t) => t.id === (upcoming.homeId === selectedTeam ? upcoming.awayId : upcoming.homeId));
       const field = FIELDS.find((f) => f.id === upcoming.fieldId);
-      notes.push({ msg: `Next: vs ${opp?.name} on ${field?.sponsor} at ${slotToTime(upcoming.slotIndex ?? 0)}`, type: "info" });
+      notes.push({ msg: `Volgende: vs ${opp?.name} op ${field?.sponsor} om ${slotToTime(upcoming.slotIndex ?? 0)}`, type: "info" });
     }
     const live = state.matches.find((m) => (m.homeId === selectedTeam || m.awayId === selectedTeam) && m.status === "live");
     if (live) notes.unshift({ msg: `🔴 LIVE — ${live.scoreHome} : ${live.scoreAway}`, type: "warning" });
@@ -1245,12 +1250,12 @@ function PlayerView({ state }) {
         <div style={{ textAlign: "center", marginBottom: 28, paddingTop: 12 }}>
           <Logo size="lg" />
           <div style={{ marginTop: 6 }}><EventTitle size="md" /></div>
-          <p style={{ color: C.text2, fontSize: 12, marginTop: 5 }}>6 April 2026 · Gent</p>
-          <p style={{ color: C.gold, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 3 }}>We play for more</p>
+          <p style={{ color: C.text2, fontSize: 12, marginTop: 5 }}>6 april 2026 · Gent</p>
+          <p style={{ color: C.gold, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 3 }}>We spelen voor meer</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[{ id: "men", label: "Men's Competition", n: state.teams.filter((t) => t.competition === "men").length },
-            { id: "women", label: "Women's Competition", n: state.teams.filter((t) => t.competition === "women").length }].map((c) => (
+          {[{ id: "men", label: "Mannencompetitie", n: state.teams.filter((t) => t.competition === "men").length },
+            { id: "women", label: "Vrouwencompetitie", n: state.teams.filter((t) => t.competition === "women").length }].map((c) => (
             <Card key={c.id} onClick={() => setComp(c.id)} style={{ cursor: "pointer", textAlign: "center", padding: 18 }}>
               <div style={{ fontSize: 26 }}>⚽</div>
               <h3 style={{ color: C.white, margin: "5px 0 2px", fontSize: 16, fontFamily: FONT_DISPLAY, fontWeight: 700 }}>{c.label}</h3>
@@ -1268,8 +1273,8 @@ function PlayerView({ state }) {
     const t = state.teams.filter((t) => t.competition === comp);
     return (
       <div style={{ padding: 20, maxWidth: 440, margin: "0 auto" }}>
-        <button onClick={() => setComp(null)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12, fontWeight: 700, marginBottom: 10, fontFamily: FONT_BODY }}>← Back</button>
-        <Section title="Select Your Team" sub={`${comp} competition`}>
+        <button onClick={() => setComp(null)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12, fontWeight: 700, marginBottom: 10, fontFamily: FONT_BODY }}>← Terug</button>
+        <Section title="Kies Jouw Team" sub={`${comp === "men" ? "mannen" : "vrouwen"} competitie`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {t.map((tm) => (
               <Card key={tm.id} onClick={() => setSelectedTeam(tm.id)} style={{ cursor: "pointer", padding: 13 }}>
@@ -1290,24 +1295,24 @@ function PlayerView({ state }) {
   return (
     <div style={{ padding: 14, maxWidth: 440, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <button onClick={() => setSelectedTeam(null)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_BODY }}>← Teams</button>
+        <button onClick={() => setSelectedTeam(null)} style={{ background: "none", border: "none", color: C.accent, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: FONT_BODY }}>← Teams</button>{/* Teams is same in Dutch */}
         <Badge>{comp}</Badge>
       </div>
       <h1 style={{ fontSize: 22, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, letterSpacing: "-0.02em", margin: "0 0 2px" }}>{team?.name}</h1>
       {teamGroup && <p style={{ margin: "0 0 14px", color: C.gold, fontSize: 12, fontWeight: 700 }}>{teamGroup.name}</p>}
       {notifications.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 14 }}>{notifications.map((n, i) => <Notification key={i} msg={n.msg} type={n.type} />)}</div>}
-      <Section title="Matches" sub={`${teamMatches.length} scheduled`}>
+      <Section title="Wedstrijden" sub={`${teamMatches.length} gepland`}>
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           {teamMatches.map((m) => (
             <div key={m.id}>
-              <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>🕐 {slotToTime(m.slotIndex ?? 0)} · Slot {(m.slotIndex ?? 0) + 1}</div>
+              <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>🕐 {slotToTime(m.slotIndex ?? 0)} · Ronde {(m.slotIndex ?? 0) + 1}</div>
               <MatchCard match={m} teams={state.teams} compact />
             </div>
           ))}
-          {teamMatches.length === 0 && <div style={{ textAlign: "center", padding: 20, color: C.text3 }}>No matches yet.</div>}
+          {teamMatches.length === 0 && <div style={{ textAlign: "center", padding: 20, color: C.text3 }}>Nog geen wedstrijden.</div>}
         </div>
       </Section>
-      {teamGroup && <Section title="Standings"><StandingsTable group={teamGroup} matches={state.matches} teams={state.teams} compact /></Section>}
+      {teamGroup && <Section title="Stand"><StandingsTable group={teamGroup} matches={state.matches} teams={state.teams} compact /></Section>}
       <SponsorBar compact />
       <Footer />
     </div>
@@ -1325,56 +1330,56 @@ function WelcomeScreenDisplay() {
         <div style={{ animation: "slideUp .6s ease", marginBottom: 20 }}>
           <Logo size="xl" />
           <div style={{ marginTop: 10, marginBottom: 6 }}><EventTitle size="xl" /></div>
-          <p style={{ color: C.text2, fontSize: 28, margin: "4px 0" }}>6 April 2026 · Gent</p>
-          <p style={{ color: C.gold, fontSize: 18, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 24 }}>We play for more</p>
+          <p style={{ color: C.text2, fontSize: 28, margin: "4px 0" }}>6 april 2026 · Gent</p>
+          <p style={{ color: C.gold, fontSize: 18, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 24 }}>We spelen voor meer</p>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 20, animation: "slideUp .6s ease .2s both" }}>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, textAlign: "left" }}>
-            <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 32, color: C.gold, marginBottom: 18, letterSpacing: "-0.02em" }}>⏱ Match Format</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 42, color: C.gold, marginBottom: 22, letterSpacing: "-0.02em" }}>⏱ Wedstrijdformat</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               {[
-                { icon: "⚽", title: "10 min — Play", sub: "First half" },
-                { icon: "⏸", title: "5 min — Break", sub: "Half time" },
-                { icon: "⚽", title: "10 min — Play", sub: "Second half" },
+                { icon: "⚽", title: "10 min — Spel", sub: "Eerste helft" },
+                { icon: "⏸", title: "5 min — Pauze", sub: "Rust" },
+                { icon: "⚽", title: "10 min — Spel", sub: "Tweede helft" },
               ].map((item) => (
-                <div key={item.title} style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                  <div style={{ width: 52, height: 52, borderRadius: 12, background: item.icon === "⏸" ? "#33333380" : C.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>{item.icon}</div>
+                <div key={item.title} style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                  <div style={{ width: 64, height: 64, borderRadius: 14, background: item.icon === "⏸" ? "#33333380" : C.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, flexShrink: 0 }}>{item.icon}</div>
                   <div>
-                    <p style={{ color: C.white, fontWeight: 700, fontSize: 22, margin: 0 }}>{item.title}</p>
-                    <p style={{ color: C.text2, fontSize: 18, margin: 0 }}>{item.sub}</p>
+                    <p style={{ color: C.white, fontWeight: 700, fontSize: 28, margin: 0 }}>{item.title}</p>
+                    <p style={{ color: C.text2, fontSize: 22, margin: 0 }}>{item.sub}</p>
                   </div>
                 </div>
               ))}
-              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12, marginTop: 4 }}>
-                <p style={{ color: C.gold, fontWeight: 700, fontSize: 20, margin: "0 0 4px" }}>Total block: 30 min</p>
-                <p style={{ color: C.text2, fontSize: 18, margin: 0 }}>Next match starts 5 min after the block ends</p>
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14, marginTop: 6 }}>
+                <p style={{ color: C.gold, fontWeight: 700, fontSize: 26, margin: "0 0 6px" }}>Totaal blok: 30 min</p>
+                <p style={{ color: C.text2, fontSize: 22, margin: 0 }}>Volgende wedstrijd start 5 min na het blok</p>
               </div>
             </div>
           </div>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: 28, textAlign: "left" }}>
-            <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 32, color: C.gold, marginBottom: 18, letterSpacing: "-0.02em" }}>🏆 Tournament Format</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 42, color: C.gold, marginBottom: 22, letterSpacing: "-0.02em" }}>🏆 Toernooiformat</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <Badge color={C.blue}>Women's Cup</Badge>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <Badge color={C.blue}>Vrouwenbeker</Badge>
                 </div>
-                <p style={{ color: C.text, fontSize: 20, margin: "0 0 4px" }}>Group stage — every team plays at least 3 matches</p>
-                <p style={{ color: C.text2, fontSize: 17, margin: 0 }}>Best teams qualify for the finals ceremony</p>
+                <p style={{ color: C.text, fontSize: 26, margin: "0 0 6px" }}>Iedereen speelt één keer tegen elkaar</p>
+                <p style={{ color: C.text2, fontSize: 22, margin: 0 }}>De beste 2 teams spelen de finale</p>
               </div>
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <Badge color={C.orange}>Men's Cup</Badge>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <Badge color={C.orange}>Mannenbeker</Badge>
                 </div>
-                <p style={{ color: C.text, fontSize: 20, margin: "0 0 8px" }}>Group stage — every team plays at least 3 matches</p>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {["Quarter-Finals", "Semi-Finals", "Final"].map((r) => (
-                    <span key={r} style={{ fontSize: 16, color: C.gold, background: C.goldBg, padding: "4px 12px", borderRadius: 6, fontWeight: 700 }}>{r}</span>
+                <p style={{ color: C.text, fontSize: 26, margin: "0 0 10px" }}>Groepsfase — elk team speelt minimaal 3 wedstrijden</p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {["Kwartfinales", "Halve finales", "Finale"].map((r) => (
+                    <span key={r} style={{ fontSize: 22, color: C.gold, background: C.goldBg, padding: "6px 16px", borderRadius: 8, fontWeight: 700 }}>{r}</span>
                   ))}
                 </div>
               </div>
-              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 12 }}>
-                <p style={{ color: C.live, fontWeight: 800, fontSize: 28, margin: "0 0 4px", fontFamily: FONT_DISPLAY }}>⚡ First kick-off at 11:00</p>
-                <p style={{ color: C.text2, fontSize: 18, margin: 0 }}>8 fields · up to 8 simultaneous matches</p>
+              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+                <p style={{ color: C.live, fontWeight: 800, fontSize: 36, margin: "0 0 6px", fontFamily: FONT_DISPLAY }}>⚡ Eerste aftrap om 11:00</p>
+                <p style={{ color: C.text2, fontSize: 24, margin: 0 }}>8 velden · tot 8 gelijktijdige wedstrijden</p>
               </div>
             </div>
           </div>
@@ -1408,18 +1413,18 @@ function ScreenView({ state }) {
 
   // Shared header bar
   const Header = () => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 28px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <Logo size="lg" />
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 36px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+        <Logo size="xl" />
         <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 32, color: C.white, letterSpacing: "-0.03em", lineHeight: 1 }}>
+          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 52, color: C.white, letterSpacing: "-0.03em", lineHeight: 1 }}>
             Copa <span style={{ color: C.gold }}>Mundial</span>
           </div>
-          <p style={{ margin: 0, fontSize: 22, color: C.text2 }}>6 April 2026 · Gent</p>
+          <p style={{ margin: 0, fontSize: 32, color: C.text2 }}>6 april 2026 · Gent</p>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        {SPONSORS.slice(0, 8).map((s) => <div key={s} style={{ padding: "4px 12px", borderRadius: 5, background: C.card, border: `1px solid ${C.border}`, fontSize: 18, color: C.text2, fontWeight: 700 }}>{s}</div>)}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {SPONSORS.slice(0, 8).map((s) => <div key={s} style={{ padding: "6px 16px", borderRadius: 5, background: C.card, border: `1px solid ${C.border}`, fontSize: 24, color: C.text2, fontWeight: 700 }}>{s}</div>)}
       </div>
     </div>
   );
@@ -1436,8 +1441,8 @@ function ScreenView({ state }) {
       : -1;
 
     return (
-      <div style={{ padding: "8px 28px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6 }}>
+      <div style={{ padding: "10px 36px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
           {FIELDS.map((f) => {
             const liveMatch = all.find((m) => m.fieldId === f.id && m.status === "live");
             const currentMatch = activeSlot >= 0 ? all.find((m) => m.fieldId === f.id && m.slotIndex === activeSlot) : null;
@@ -1450,16 +1455,16 @@ function ScreenView({ state }) {
             const isL = shownMatch?.status === "live";
             const isCur = shownMatch && shownMatch.slotIndex === activeSlot;
             return (
-              <div key={f.id} style={{ background: isL ? `${C.live}0a` : isCur ? C.accentBg : C.card, border: `1px solid ${isL ? C.live + "50" : isCur ? C.accent + "40" : C.border}`, borderRadius: 8, padding: "8px 6px", textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{f.sponsor}</div>
-                {shownMatch && <div style={{ fontSize: 18, color: isL ? C.live : C.text3, fontWeight: 700, marginBottom: 2 }}>{slotToTime(shownMatch.slotIndex ?? 0)}</div>}
+              <div key={f.id} style={{ background: isL ? `${C.live}0a` : isCur ? C.accentBg : C.card, border: `1px solid ${isL ? C.live + "50" : isCur ? C.accent + "40" : C.border}`, borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{f.sponsor}</div>
+                {shownMatch && <div style={{ fontSize: 22, color: isL ? C.live : C.text3, fontWeight: 700, marginBottom: 3 }}>{slotToTime(shownMatch.slotIndex ?? 0)}</div>}
                 {shownMatch ? (
                   <>
-                    <div style={{ fontSize: 21, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
-                    <div style={{ fontSize: 27, fontWeight: 900, color: isL ? C.live : C.text3, margin: "1px 0" }}>{isL ? `${shownMatch.scoreHome}–${shownMatch.scoreAway}` : "vs"}</div>
-                    <div style={{ fontSize: 21, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
+                    <div style={{ fontSize: 36, fontWeight: 900, color: isL ? C.live : C.text3, margin: "2px 0" }}>{isL ? `${shownMatch.scoreHome}–${shownMatch.scoreAway}` : "vs"}</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
                   </>
-                ) : <div style={{ fontSize: 18, color: C.text3, padding: "4px 0" }}>—</div>}
+                ) : <div style={{ fontSize: 22, color: C.text3, padding: "4px 0" }}>—</div>}
               </div>
             );
           })}
@@ -1482,16 +1487,16 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <div style={{ flex: 1, overflow: "hidden", padding: "12px 28px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ flex: 1, overflow: "hidden", padding: "14px 36px", display: "flex", flexDirection: "column", gap: 16 }}>
           {activeMatches.length > 0 && (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <span style={{ fontSize: 24, fontWeight: 700, color: C.gold, fontFamily: FONT_DISPLAY, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  {live.length > 0 ? "Current Slot" : "Up Now"} — {slotToTime(activeSlot)}
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
+                <span style={{ fontSize: 38, fontWeight: 700, color: C.gold, fontFamily: FONT_DISPLAY, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  {live.length > 0 ? "Huidige Ronde" : "Nu Bezig"} — {slotToTime(activeSlot)}
                 </span>
-                <span style={{ fontSize: 18, color: C.text3 }}>{activeMatches.length} matches</span>
+                <span style={{ fontSize: 24, color: C.text3 }}>{activeMatches.length} wedstrijden</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 10 }}>
                 {activeMatches.map((m) => {
                   const home = state.teams.find((t) => t.id === m.homeId);
                   const away = state.teams.find((t) => t.id === m.awayId);
@@ -1500,16 +1505,16 @@ function ScreenView({ state }) {
                   const isL = m.status === "live";
                   const isDone = m.status === "completed";
                   return (
-                    <div key={m.id} style={{ background: isL ? `${C.live}0d` : C.card, border: `1px solid ${isL ? C.live + "50" : C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-                      <div style={{ fontSize: 18, color: isL ? C.live : C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Group" : m.phase}</div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: isDone || isL ? 48 : 24, fontWeight: 900, color: isDone || isL ? C.white : C.text3, padding: "0 10px", fontVariantNumeric: "tabular-nums", fontFamily: FONT_DISPLAY, minWidth: 100, textAlign: "center", flexShrink: 0 }}>
+                    <div key={m.id} style={{ background: isL ? `${C.live}0d` : C.card, border: `1px solid ${isL ? C.live + "50" : C.border}`, borderRadius: 12, padding: "12px 18px" }}>
+                      <div style={{ fontSize: 24, color: isL ? C.live : C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Groep" : m.phase}</div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 48, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: isDone || isL ? 72 : 36, fontWeight: 900, color: isDone || isL ? C.white : C.text3, padding: "0 14px", fontVariantNumeric: "tabular-nums", fontFamily: FONT_DISPLAY, minWidth: 130, textAlign: "center", flexShrink: 0 }}>
                           {isDone || isL ? `${m.scoreHome ?? 0}–${m.scoreAway ?? 0}` : "vs"}
                         </span>
-                        <span style={{ flex: 1, fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
+                        <span style={{ flex: 1, fontSize: 48, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 14, color: C.text3, marginTop: 4, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
                     </div>
                   );
                 })}
@@ -1518,34 +1523,34 @@ function ScreenView({ state }) {
           )}
           {nextMatches.length > 0 && (
             <div style={{ flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <span style={{ fontSize: 24, fontWeight: 700, color: C.text2, fontFamily: FONT_DISPLAY, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  Next — {slotToTime(nextSlot)}
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
+                <span style={{ fontSize: 34, fontWeight: 700, color: C.text2, fontFamily: FONT_DISPLAY, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Volgende — {slotToTime(nextSlot)}
                 </span>
-                <span style={{ fontSize: 18, color: C.text3 }}>{nextMatches.length} matches</span>
+                <span style={{ fontSize: 22, color: C.text3 }}>{nextMatches.length} wedstrijden</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 10 }}>
                 {nextMatches.map((m) => {
                   const home = state.teams.find((t) => t.id === m.homeId);
                   const away = state.teams.find((t) => t.id === m.awayId);
                   const field = FIELDS.find((f) => f.id === m.fieldId);
                   const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
                   return (
-                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
-                      <div style={{ fontSize: 18, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Group" : m.phase}</div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 24, fontWeight: 700, color: C.text3, padding: "0 10px", minWidth: 100, textAlign: "center", fontFamily: FONT_DISPLAY }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 30, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
+                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 18px" }}>
+                      <div style={{ fontSize: 24, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Groep" : m.phase}</div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 44, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 32, fontWeight: 700, color: C.text3, padding: "0 14px", minWidth: 120, textAlign: "center", fontFamily: FONT_DISPLAY }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 44, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 14, color: C.text3, marginTop: 4, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 18, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
                     </div>
                   );
                 })}
               </div>
             </div>
           )}
-          {all.length === 0 && <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 22 }}>No matches scheduled yet.</div>}
+          {all.length === 0 && <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen wedstrijden ingepland.</div>}
         </div>
       </div>
     );
@@ -1561,59 +1566,59 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 28px", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 36px", overflow: "hidden" }}>
           <div style={{ flex: 1, minHeight: 0, marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-              <h2 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 45, color: C.gold }}>Up Next</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 64, color: C.gold }}>Volgende</h2>
               {nextSlotMatches.length > 0 && <Badge color={C.gold}>{slotToTime(nextSlot)}</Badge>}
             </div>
             {nextSlotMatches.length > 0 ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))", gap: 14 }}>
                 {nextSlotMatches.map((m) => {
                   const home = state.teams.find((t) => t.id === m.homeId);
                   const away = state.teams.find((t) => t.id === m.awayId);
                   const field = FIELDS.find((f) => f.id === m.fieldId);
                   const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
                   return (
-                    <div key={m.id} style={{ background: C.card, border: `2px solid ${C.accent}40`, borderRadius: 12, padding: "16px 20px" }}>
-                      <div style={{ fontSize: 18, color: C.gold, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>
-                        {field?.sponsor} · {field?.name} · {m.phase === "group" ? "Group" : m.phase}
+                    <div key={m.id} style={{ background: C.card, border: `2px solid ${C.accent}40`, borderRadius: 14, padding: "18px 24px" }}>
+                      <div style={{ fontSize: 26, color: C.gold, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
+                        {field?.sponsor} · {field?.name} · {m.phase === "group" ? "Groep" : m.phase}
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 33, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 27, fontWeight: 700, color: C.text3, padding: "2px 14px", fontFamily: FONT_DISPLAY, flexShrink: 0 }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 33, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 52, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 40, fontWeight: 700, color: C.text3, padding: "2px 18px", fontFamily: FONT_DISPLAY, flexShrink: 0 }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 52, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 16, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 22, color: C.text3, marginTop: 8, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div style={{ textAlign: "center", padding: 40, color: C.text3, fontSize: 33 }}>No upcoming matches.</div>
+              <div style={{ textAlign: "center", padding: 40, color: C.text3, fontSize: 48 }}>Geen komende wedstrijden.</div>
             )}
           </div>
           {afterSlotMatches.length > 0 && (
             <div style={{ flex: 1, minHeight: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 33, color: C.text2 }}>Following</h3>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
+                <h3 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontWeight: 700, fontSize: 48, color: C.text2 }}>Daarna</h3>
                 <Badge color={C.text2}>{slotToTime(afterSlot)}</Badge>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 10 }}>
                 {afterSlotMatches.map((m) => {
                   const home = state.teams.find((t) => t.id === m.homeId);
                   const away = state.teams.find((t) => t.id === m.awayId);
                   const field = FIELDS.find((f) => f.id === m.fieldId);
                   const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
                   return (
-                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 18px" }}>
-                      <div style={{ fontSize: 18, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{field?.sponsor} · {field?.name}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 28, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 22, color: C.text3, padding: "0 8px", flexShrink: 0 }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 28, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
+                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 20px" }}>
+                      <div style={{ fontSize: 24, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{field?.sponsor} · {field?.name}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ flex: 1, textAlign: "right", fontSize: 42, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{home?.name || "TBD"}</span>
+                        <span style={{ fontSize: 32, color: C.text3, padding: "0 12px", flexShrink: 0 }}>vs</span>
+                        <span style={{ flex: 1, fontSize: 42, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 14, color: C.text3, marginTop: 4, fontWeight: 600, textAlign: "center" }}>👔 Ref: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
                     </div>
                   );
                 })}
@@ -1633,30 +1638,30 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <div style={{ flex: 1, overflow: "hidden", padding: "14px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 18 }}>
           {womenGroups.length > 0 && (
             <div style={{ flex: "0 0 auto" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `2px solid ${C.blue}30` }}>
-                <div style={{ width: 5, height: 28, background: C.blue, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 36, color: C.blue, letterSpacing: "-0.01em" }}>Women's Cup</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.blue}30` }}>
+                <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: C.blue, letterSpacing: "-0.01em" }}>Vrouwenbeker</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
                 {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
               </div>
             </div>
           )}
           {menGroups.length > 0 && (
             <div style={{ flex: "0 0 auto" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 8, borderBottom: `2px solid ${C.orange}30` }}>
-                <div style={{ width: 5, height: 28, background: C.orange, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 36, color: C.orange, letterSpacing: "-0.01em" }}>Men's Cup</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.orange}30` }}>
+                <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: C.orange, letterSpacing: "-0.01em" }}>Mannenbeker</span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
                 {menGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
               </div>
             </div>
           )}
-          {state.groups.length === 0 && <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 22 }}>No standings yet.</div>}
+          {state.groups.length === 0 && <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen stand.</div>}
         </div>
       </div>
     );
@@ -1666,7 +1671,7 @@ function ScreenView({ state }) {
   if (view === "men-groups" || view === "women-groups") {
     const compFilter = view === "men-groups" ? "men" : "women";
     const compColor = compFilter === "men" ? C.orange : C.blue;
-    const compLabel = compFilter === "men" ? "Men's Cup" : "Women's Cup";
+    const compLabel = compFilter === "men" ? "Mannenbeker" : "Vrouwenbeker";
     const compGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === compFilter);
     const compMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === compFilter);
     const live = compMatches.filter((m) => m.status === "live");
@@ -1674,12 +1679,12 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <div style={{ flex: 1, overflow: "hidden", padding: "12px 28px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${compColor}30`, flexShrink: 0 }}>
-            <div style={{ width: 5, height: 28, background: compColor, borderRadius: 2 }} />
-            <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 36, color: compColor }}>{compLabel} — Standings</span>
+        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${compColor}30`, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 36, background: compColor, borderRadius: 2 }} />
+            <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: compColor }}>{compLabel} — Stand</span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 10, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12, overflow: "hidden" }}>
             {compGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
           </div>
         </div>
@@ -1695,12 +1700,12 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <div style={{ flex: 1, overflow: "hidden", padding: "12px 28px", display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, overflow: "hidden" }}>
             {koMatches.length > 0 ? (
               <KnockoutBracket matches={koMatches} teams={state.teams} showField={true} bigScreen={true} />
             ) : (
-              <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 22 }}>Complete group stage to generate knockout.</div>
+              <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Voltooi de groepsfase voor de knockout.</div>
             )}
           </div>
         </div>
@@ -1717,17 +1722,17 @@ function ScreenView({ state }) {
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <Header />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "20px 28px" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 36px" }}>
           {finalMatches.length === 0 ? (
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 72, marginBottom: 16 }}>🏆</div>
-              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 72, color: C.white, marginBottom: 12 }}>Finals</h2>
-              <p style={{ color: C.text3, fontSize: 36 }}>Finals not yet determined.</p>
+              <div style={{ fontSize: 96, marginBottom: 20 }}>🏆</div>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 96, color: C.white, marginBottom: 16 }}>Finales</h2>
+              <p style={{ color: C.text3, fontSize: 48 }}>Finales nog niet bepaald.</p>
             </div>
           ) : (
             <>
-              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 54, color: C.gold, margin: "0 0 28px", letterSpacing: "-0.02em" }}>🏆 Finals</h2>
-              <div style={{ display: "grid", gridTemplateColumns: finalMatches.length > 1 ? "1fr 1fr" : "minmax(400px, 680px)", gap: 32, width: "100%", maxWidth: 1200 }}>
+              <h2 style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 72, color: C.gold, margin: "0 0 32px", letterSpacing: "-0.02em" }}>🏆 Finales</h2>
+              <div style={{ display: "grid", gridTemplateColumns: finalMatches.length > 1 ? "1fr 1fr" : "minmax(500px, 800px)", gap: 40, width: "100%", maxWidth: 1600 }}>
                 {finalMatches.map((m) => {
                   const home = state.teams.find((t) => t.id === m.homeId);
                   const away = state.teams.find((t) => t.id === m.awayId);
@@ -1737,30 +1742,30 @@ function ScreenView({ state }) {
                   const isLiveM = m.status === "live";
                   const winner = getMatchWinner(m);
                   return (
-                    <div key={m.id} style={{ background: `linear-gradient(135deg, ${C.card}, ${C.accentBg})`, border: `2px solid ${isLiveM ? C.live : isDone ? C.gold : C.border2}`, borderRadius: 24, padding: "32px 28px", textAlign: "center" }}>
-                      <div style={{ marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-                        <Badge color={comp === "women" ? C.blue : C.orange}>{comp === "women" ? "Women's Final" : "Men's Final"}</Badge>
-                        {field && <span style={{ fontSize: 22, color: C.text3, fontWeight: 600 }}>{field.sponsor} · {field.name}</span>}
-                        {isLiveM && <span style={{ fontSize: 22, color: C.live, fontWeight: 700, animation: "pulse 1.5s infinite" }}>● LIVE</span>}
+                    <div key={m.id} style={{ background: `linear-gradient(135deg, ${C.card}, ${C.accentBg})`, border: `2px solid ${isLiveM ? C.live : isDone ? C.gold : C.border2}`, borderRadius: 28, padding: "36px 32px", textAlign: "center" }}>
+                      <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
+                        <Badge color={comp === "women" ? C.blue : C.orange}>{comp === "women" ? "Vrouwenfinale" : "Mannenfinale"}</Badge>
+                        {field && <span style={{ fontSize: 28, color: C.text3, fontWeight: 600 }}>{field.sponsor} · {field.name}</span>}
+                        {isLiveM && <span style={{ fontSize: 28, color: C.live, fontWeight: 700, animation: "pulse 1.5s infinite" }}>● BEZIG</span>}
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
                         <div style={{ flex: 1, textAlign: "right" }}>
-                          <div style={{ fontSize: 48, fontWeight: 800, color: winner === m.homeId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
-                          {winner === m.homeId && <div style={{ fontSize: 24, color: C.gold, fontWeight: 700, marginTop: 6 }}>🏆 WINNER</div>}
+                          <div style={{ fontSize: 72, fontWeight: 800, color: winner === m.homeId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
+                          {winner === m.homeId && <div style={{ fontSize: 36, color: C.gold, fontWeight: 700, marginTop: 8 }}>🏆 WINNAAR</div>}
                         </div>
-                        <div style={{ minWidth: 110, textAlign: "center" }}>
+                        <div style={{ minWidth: 140, textAlign: "center" }}>
                           {isDone || isLiveM ? (
-                            <div style={{ fontSize: 108, fontWeight: 900, color: C.white, fontFamily: FONT_DISPLAY, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{m.scoreHome}–{m.scoreAway}</div>
+                            <div style={{ fontSize: 136, fontWeight: 900, color: C.white, fontFamily: FONT_DISPLAY, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{m.scoreHome}–{m.scoreAway}</div>
                           ) : (
-                            <div style={{ fontSize: 54, color: C.text3, fontWeight: 700 }}>vs</div>
+                            <div style={{ fontSize: 72, color: C.text3, fontWeight: 700 }}>vs</div>
                           )}
                           {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
-                            <div style={{ fontSize: 28, color: C.orange, fontWeight: 700, marginTop: 6 }}>({m.penHome}–{m.penAway} pen)</div>
+                            <div style={{ fontSize: 36, color: C.orange, fontWeight: 700, marginTop: 8 }}>({m.penHome}–{m.penAway} strafsch.)</div>
                           )}
                         </div>
                         <div style={{ flex: 1, textAlign: "left" }}>
-                          <div style={{ fontSize: 48, fontWeight: 800, color: winner === m.awayId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
-                          {winner === m.awayId && <div style={{ fontSize: 24, color: C.gold, fontWeight: 700, marginTop: 6 }}>🏆 WINNER</div>}
+                          <div style={{ fontSize: 72, fontWeight: 800, color: winner === m.awayId ? C.gold : C.white, fontFamily: FONT_DISPLAY, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
+                          {winner === m.awayId && <div style={{ fontSize: 36, color: C.gold, fontWeight: 700, marginTop: 8 }}>🏆 WINNAAR</div>}
                         </div>
                       </div>
                     </div>
@@ -1775,7 +1780,7 @@ function ScreenView({ state }) {
   }
 
   // fallback
-  return <div style={{ background: C.bg, color: C.text, padding: 40 }}>Unknown view</div>;
+  return <div style={{ background: C.bg, color: C.text, padding: 40 }}>Onbekende weergave</div>;
 }
 
 // ============================================================
@@ -1789,11 +1794,11 @@ function LoginScreen({ onLogin }) {
       <style>{GLOBAL_CSS}</style>
       <Card style={{ maxWidth: 320, width: "100%", textAlign: "center", padding: 28 }}>
         <Logo size="md" />
-        <h2 style={{ color: C.white, margin: "10px 0 3px", fontSize: 18, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Admin Access</h2>
-        <p style={{ color: C.text2, fontSize: 11, margin: "0 0 18px" }}>Enter tournament password</p>
-        <Input value={pw} onChange={(v) => { setPw(v); setErr(false); }} placeholder="Password" type="password" style={{ marginBottom: 10 }} />
-        {err && <p style={{ color: C.red, fontSize: 11, margin: "0 0 8px" }}>Incorrect password</p>}
-        <Btn onClick={() => { if (pw === ADMIN_PASSWORD) onLogin(); else setErr(true); }} style={{ width: "100%" }}>Enter</Btn>
+        <h2 style={{ color: C.white, margin: "10px 0 3px", fontSize: 18, fontWeight: 800, fontFamily: FONT_DISPLAY }}>Admin Toegang</h2>
+        <p style={{ color: C.text2, fontSize: 11, margin: "0 0 18px" }}>Voer het toernooiwachtwoord in</p>
+        <Input value={pw} onChange={(v) => { setPw(v); setErr(false); }} placeholder="Wachtwoord" type="password" style={{ marginBottom: 10 }} />
+        {err && <p style={{ color: C.red, fontSize: 11, margin: "0 0 8px" }}>Ongeldig wachtwoord</p>}
+        <Btn onClick={() => { if (pw === ADMIN_PASSWORD) onLogin(); else setErr(true); }} style={{ width: "100%" }}>Inloggen</Btn>
       </Card>
     </div>
   );
@@ -1848,7 +1853,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}><Logo size="sm" /><Badge color={C.live}>Admin</Badge></div>
           <div style={{ display: "flex", gap: 6 }}>
             <Btn sz="sm" v="ghost" onClick={() => (window.location.hash = "home")}>Home</Btn>
-            <Btn sz="sm" v="secondary" onClick={() => setAdminAuth(false)}>🔒 Logout</Btn>
+            <Btn sz="sm" v="secondary" onClick={() => setAdminAuth(false)}>🔒 Uitloggen</Btn>
           </div>
         </div>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: 18 }}><AdminView state={state} dispatch={dispatch} /></div>
@@ -1865,19 +1870,19 @@ export default function App() {
       <div style={{ animation: "slideUp .6s ease" }}>
         <Logo size="xl" />
         <div style={{ marginTop: 10 }}><EventTitle size="xl" /></div>
-        <p style={{ color: C.text2, fontSize: 15, marginTop: 8 }}>6 April 2026 · Gent</p>
-        <p style={{ color: C.gold, fontSize: 12, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginTop: 4, marginBottom: 32 }}>We play for more</p>
+        <p style={{ color: C.text2, fontSize: 15, marginTop: 8 }}>6 april 2026 · Gent</p>
+        <p style={{ color: C.gold, fontSize: 12, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginTop: 4, marginBottom: 32 }}>We spelen voor meer</p>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", maxWidth: 300, animation: "slideUp .6s ease .15s both" }}>
-        <Btn onClick={() => (window.location.hash = "player")} sz="lg" style={{ width: "100%", justifyContent: "center" }}>⚽ Player / Supporter</Btn>
+        <Btn onClick={() => (window.location.hash = "player")} sz="lg" style={{ width: "100%", justifyContent: "center" }}>⚽ Speler / Supporter</Btn>
         <Btn onClick={() => (window.location.hash = "admin")} sz="lg" v="secondary" style={{ width: "100%", justifyContent: "center" }}>🔒 Admin</Btn>
-        <Btn onClick={() => (window.location.hash = "screen")} sz="lg" v="secondary" style={{ width: "100%", justifyContent: "center" }}>🖥️ Big Screen</Btn>
+        <Btn onClick={() => (window.location.hash = "screen")} sz="lg" v="secondary" style={{ width: "100%", justifyContent: "center" }}>🖥️ Groot Scherm</Btn>
       </div>
       <div style={{ marginTop: 24, animation: "slideUp .6s ease .3s both" }}>
         <div style={{ display: "inline-block", padding: 16, background: "#fff", borderRadius: 16 }}>
           <QRCodeSVG value={playerUrl} size={220} bgColor="#ffffff" fgColor="#000000" />
         </div>
-        <p style={{ color: C.text2, fontSize: 11, marginTop: 6 }}>Scan for player view</p>
+        <p style={{ color: C.text2, fontSize: 11, marginTop: 6 }}>Scan voor spelersweergave</p>
       </div>
       <SponsorBar />
       <Footer />
