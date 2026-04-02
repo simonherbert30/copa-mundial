@@ -599,30 +599,31 @@ const C = {
   input: "#0d1728",       // Very dark navy for inputs
   border: "rgba(255,255,255,0.10)",  // Subtle white border
   border2: "rgba(255,255,255,0.20)", // More visible white border
-  accent: "#ffca00",      // Kopa yellow (primary accent on navy bg)
-  accentLight: "#ffd740",
-  accentBg: "rgba(255,202,0,0.15)",
-  gold: "#ffca00",
-  goldLight: "#ffd740",
-  goldBg: "rgba(255,202,0,0.15)",
-  red: "#e81e25",         // Kopa red (secondary accent)
-  redBg: "rgba(232,30,37,0.18)",
-  cream: "#f4f0ea",
+  accent: "#d81212",      // Kopa red — primary accent/CTA
+  accentLight: "#f03030",
+  accentBg: "rgba(216,18,18,0.15)",
+  gold: "#e8c465",        // Kopa yellow — scores, highlights
+  goldLight: "#f0d080",
+  goldBg: "rgba(232,196,101,0.18)",
+  red: "#d81212",         // Kopa red
+  darkRed: "#911a28",     // Secondary dark red
+  redBg: "rgba(216,18,18,0.15)",
+  blue: "#1363d6",        // Kopa blue
+  green: "#3a9b3a",       // Kopa green
+  cream: "#f4f0ea",       // Kopa cream
   white: "#fff",
   text: "#ffffff",
-  text2: "rgba(255,255,255,0.7)",
+  text2: "rgba(255,255,255,0.75)",
   text3: "rgba(255,255,255,0.45)",
-  live: "#00e676",
-  blue: "#72c4ff",
-  orange: "#ffab40",
+  live: "#3a9b3a",        // Kopa green for live/active
+  orange: "#e8c465",      // map to Kopa yellow
 };
 
 const FONT_DISPLAY = "'Cubano', sans-serif";
-const FONT_BODY = "'A4SPEED', sans-serif";
+const FONT_BODY = "'Avenir Next LT Pro', 'Avenir Next', 'Avenir', -apple-system, 'Segoe UI', sans-serif";
 
 const GLOBAL_CSS = `
 @font-face{font-family:'Cubano';src:url('/fonts/Cubano.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'A4SPEED';src:url('/fonts/A4SPEED-Bold.ttf') format('truetype');font-weight:700;font-style:normal;font-display:swap}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:${C.bg};color:${C.text};font-family:${FONT_BODY};-webkit-font-smoothing:antialiased}
 input,button,select,textarea{font-family:inherit}

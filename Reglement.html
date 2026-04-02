@@ -6,32 +6,33 @@
   <title>Copa Mundial — Officieel Reglement</title>
   <style>
     @font-face { font-family: 'Cubano'; src: url('public/fonts/Cubano.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-    @font-face { font-family: 'A4SPEED'; src: url('public/fonts/A4SPEED-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:       #111e39;
-      --card:     #1a2d52;
-      --dark:     #0d1728;
-      --gold:     #ffca00;
-      --gold-bg:  rgba(255,202,0,0.14);
-      --gold-border: rgba(255,202,0,0.30);
-      --red:      #e81e25;
-      --white:    #ffffff;
-      --cream:    #f4f0ea;
-      --text2:    rgba(255,255,255,0.75);
-      --text3:    rgba(255,255,255,0.45);
-      --border:   rgba(255,255,255,0.10);
-      --border2:  rgba(255,255,255,0.20);
-      --blue:     #72c4ff;
-      --orange:   #ffab40;
-      --live:     #00e676;
+      --bg:          #111e39;
+      --card:        #1a2d52;
+      --dark:        #0d1728;
+      --accent:      #d81212;
+      --accent-bg:   rgba(216,18,18,0.14);
+      --accent-border: rgba(216,18,18,0.30);
+      --gold:        #e8c465;
+      --gold-bg:     rgba(232,196,101,0.14);
+      --gold-border: rgba(232,196,101,0.30);
+      --blue:        #1363d6;
+      --green:       #3a9b3a;
+      --dark-red:    #911a28;
+      --cream:       #f4f0ea;
+      --white:       #ffffff;
+      --text2:       rgba(255,255,255,0.75);
+      --text3:       rgba(255,255,255,0.45);
+      --border:      rgba(255,255,255,0.10);
+      --border2:     rgba(255,255,255,0.20);
     }
 
     body {
       background: var(--bg);
       color: var(--white);
-      font-family: 'A4SPEED', sans-serif;
+      font-family: 'Avenir Next LT Pro', 'Avenir Next', 'Avenir', -apple-system, 'Segoe UI', sans-serif;
       font-size: 13pt;
       line-height: 1.6;
       -webkit-print-color-adjust: exact;
@@ -73,7 +74,7 @@
       color: var(--white);
     }
 
-    .event-title span { color: var(--gold); }
+    .event-title span { color: var(--accent); }
 
     .event-meta {
       color: var(--text2);
@@ -128,7 +129,8 @@
     }
 
     .section-bar.blue  { background: var(--blue); }
-    .section-bar.orange { background: var(--orange); }
+    .section-bar.green { background: var(--green); }
+    .section-bar.red   { background: var(--accent); }
 
     .section-title {
       font-family: 'Cubano', sans-serif;
@@ -180,8 +182,9 @@
     }
 
     .badge-gold   { color: var(--gold);   background: var(--gold-bg);   border: 1px solid var(--gold-border); }
-    .badge-blue   { color: var(--blue);   background: rgba(114,196,255,0.12); border: 1px solid rgba(114,196,255,0.25); }
-    .badge-orange { color: var(--orange); background: rgba(255,171,64,0.12);  border: 1px solid rgba(255,171,64,0.25); }
+    .badge-red    { color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent-border); }
+    .badge-blue   { color: var(--blue);   background: rgba(19,99,214,0.12);   border: 1px solid rgba(19,99,214,0.30); }
+    .badge-green  { color: var(--green);  background: rgba(58,155,58,0.12);   border: 1px solid rgba(58,155,58,0.30); }
 
     /* ---- TWO COLUMNS ---- */
     .two-col {
@@ -234,15 +237,21 @@
     }
 
     .highlight-box.blue {
-      background: rgba(114,196,255,0.10);
-      border-color: rgba(114,196,255,0.25);
+      background: rgba(19,99,214,0.12);
+      border-color: rgba(19,99,214,0.30);
       color: var(--blue);
     }
 
-    .highlight-box.orange {
-      background: rgba(255,171,64,0.10);
-      border-color: rgba(255,171,64,0.25);
-      color: var(--orange);
+    .highlight-box.green {
+      background: rgba(58,155,58,0.12);
+      border-color: rgba(58,155,58,0.30);
+      color: var(--green);
+    }
+
+    .highlight-box.red {
+      background: var(--accent-bg);
+      border-color: var(--accent-border);
+      color: var(--accent);
     }
 
     /* ---- DIVIDER ---- */
@@ -401,11 +410,11 @@
   <!-- 4. MANNENCOMPETITIE -->
   <div class="section">
     <div class="section-header">
-      <div class="section-bar orange"></div>
+      <div class="section-bar green"></div>
       <h2 class="section-title">4. Mannencompetitie</h2>
     </div>
-    <div class="highlight-box orange">
-      <span class="badge badge-orange">Mannenbeker</span>&nbsp;&nbsp;
+    <div class="highlight-box green">
+      <span class="badge badge-green">Mannenbeker</span>&nbsp;&nbsp;
       Groepsfase → Kwartfinales → Halve finales → Finale
     </div>
 

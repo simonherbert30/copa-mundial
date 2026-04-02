@@ -6,7 +6,6 @@
 <title>Copa Mundial — QR Poster</title>
 <style>
   @font-face { font-family: 'Cubano'; src: url('/fonts/Cubano.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-  @font-face { font-family: 'A4SPEED'; src: url('/fonts/A4SPEED-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -18,7 +17,7 @@
   body {
     background: #111e39;
     color: #fff;
-    font-family: 'A4SPEED', sans-serif;
+    font-family: 'Avenir Next LT Pro', 'Avenir Next', 'Avenir', -apple-system, 'Segoe UI', sans-serif;
     min-height: 100vh;
     display: flex;
     align-items: center;
@@ -46,7 +45,7 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse at 50% 30%, rgba(255,202,0,0.08) 0%, transparent 60%);
+    background: radial-gradient(ellipse at 50% 30%, rgba(216,18,18,0.07) 0%, transparent 60%);
     pointer-events: none;
   }
 
@@ -67,7 +66,7 @@
     line-height: 1.05;
     margin-bottom: 4mm;
   }
-  .event-title .accent { color: #ffca00; }
+  .event-title .accent { color: #e8c465; }
 
   .event-meta {
     font-size: 14pt;
@@ -78,7 +77,7 @@
 
   .tagline {
     font-size: 11pt;
-    color: #ffca00;
+    color: #e8c465;
     font-weight: 700;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -118,7 +117,6 @@
   }
 
   .url-display {
-    font-family: 'A4SPEED', sans-serif;
     font-size: 10pt;
     color: rgba(255,255,255,0.5);
     background: rgba(0,0,0,0.25);
@@ -148,13 +146,13 @@
     font-family: 'Cubano', sans-serif;
     font-weight: 400;
     font-size: 18pt;
-    color: #ffca00;
+    color: #e8c465;
     margin-bottom: 2mm;
   }
   .step-label {
     font-size: 9pt;
     color: rgba(255,255,255,0.7);
-    font-weight: 700;
+    font-weight: 500;
     line-height: 1.4;
   }
 
@@ -179,7 +177,7 @@
     font-size: 8pt;
     color: rgba(255,255,255,0.35);
   }
-  .footer .clavert { color: #ffca00; font-weight: 700; }
+  .footer .clavert { color: #e8c465; font-weight: 700; }
 
   @media print {
     body { background: #111e39 !important; }
