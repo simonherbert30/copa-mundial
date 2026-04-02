@@ -773,7 +773,7 @@ function MatchCard({ match, teams, compact, onScore, showField = true }) {
         <span style={{ flex: 1, fontSize: compact ? 13 : 15, fontWeight: 700, color: C.text }}>{away?.name || "TBD"}</span>
       </div>
       {ref && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {ref.name}</div>}
-      {onScore && !isDone && <ScoreEditor match={match} onScore={onScore} />}
+      {onScore && <ScoreEditor match={match} onScore={onScore} />}
     </Card>
   );
 }
