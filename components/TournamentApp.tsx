@@ -133,6 +133,22 @@ function slotToTime(slotIndex) {
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Chronologisch op weergegeven aanvangstijd (incl. per-ronde tijdsverschuiving), dan veld. */
+function compareMatchesBySchedule(a, b) {
+  const na = a.slotIndex;
+  const nb = b.slotIndex;
+  if (na == null && nb == null) return String(a.id).localeCompare(String(b.id));
+  if (na == null) return 1;
+  if (nb == null) return -1;
+  const ta = slotStartMinutesOfDay(na);
+  const tb = slotStartMinutesOfDay(nb);
+  if (ta !== tb) return ta - tb;
+  const fa = a.fieldId ?? 0;
+  const fb = b.fieldId ?? 0;
+  if (fa !== fb) return fa - fb;
+  return String(a.id).localeCompare(String(b.id));
+}
+
 /** Korte fasenaanduiding voor schema-badge (alleen deze termen). */
 function scheduleRoundPhaseWord(slotIndex, _competition) {
   if (slotIndex < 0) return "voorrondes";
@@ -2292,7 +2308,9 @@ function PlayerView({ state }) {
   useEffect(() => {
     if (!selectedTeam) return;
     const notes = [];
-    const upcoming = state.matches.find((m) => (m.homeId === selectedTeam || m.awayId === selectedTeam) && m.status === "scheduled");
+    const upcoming = [...state.matches]
+      .filter((m) => (m.homeId === selectedTeam || m.awayId === selectedTeam) && m.status === "scheduled")
+      .sort(compareMatchesBySchedule)[0];
     if (upcoming) {
       const opp = state.teams.find((t) => t.id === (upcoming.homeId === selectedTeam ? upcoming.awayId : upcoming.homeId));
       const field = FIELDS.find((f) => f.id === upcoming.fieldId);
@@ -2348,7 +2366,9 @@ function PlayerView({ state }) {
   }
 
   const team = state.teams.find((t) => t.id === selectedTeam);
-  const teamMatches = state.matches.filter((m) => m.homeId === selectedTeam || m.awayId === selectedTeam).sort((a, b) => (a.slotIndex ?? 999) - (b.slotIndex ?? 999));
+  const teamMatches = state.matches
+    .filter((m) => m.homeId === selectedTeam || m.awayId === selectedTeam)
+    .sort(compareMatchesBySchedule);
   const teamGroup = state.groups.find((g) => g.teamIds.includes(selectedTeam));
 
   return (
