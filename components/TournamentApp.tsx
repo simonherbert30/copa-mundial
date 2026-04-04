@@ -24,12 +24,13 @@ const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
 const GROUP_SCHEDULE_VERSION = 6;
 /** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
-const KO_PLACEHOLDER_VERSION = 1;
+const KO_PLACEHOLDER_VERSION = 2;
 const MEN_KO_PLACEHOLDER_IDS = {
   qf: ["ko-m-qf-0", "ko-m-qf-1", "ko-m-qf-2", "ko-m-qf-3"],
   sf: ["ko-m-sf-0", "ko-m-sf-1"],
   final: "ko-m-final",
 };
+const WOMEN_KO_PLACEHOLDER_FINAL = "ko-w-final";
 /** Mannen groepsfase: alleen slot 0–7 (slot 8 = pauze). */
 const MEN_GROUP_MAX_SLOT = 7;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
@@ -130,16 +131,29 @@ function slotToTime(slotIndex) {
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Korte fasenaanduiding voor schema-badge (alleen deze termen). */
+function scheduleRoundPhaseWord(slotIndex, competition) {
+  const comp = competition || "men";
+  if (slotIndex < 0) return "voorrondes";
+  if (slotIndex < SLOT_ROUND_QF) return "voorrondes";
+  if (slotIndex === SLOT_ROUND_QF) return "kwartfinales";
+  if (slotIndex === SLOT_ROUND_SF) {
+    if (comp === "women") return "finale";
+    return "halve finales";
+  }
+  if (slotIndex === SLOT_ROUND_FINAL_MEN) return "finale";
+  return "voorrondes";
+}
+
 /** Admin/schema: ronde = slot + 1 (halfuur vanaf 11:00, aanpasbaar via tijdsverschuiving). */
-function scheduleRoundLabel(slotIndex) {
+function scheduleRoundBadgeText(slotIndex, competition) {
   const r = slotIndex + 1;
-  if (slotIndex === 4) return `Ronde ${r} · 6 matchen (4 man + 2 vrouw)`;
-  if (slotIndex === PAUSE_SLOT_INDEX) return `Ronde ${r} · Mannen pauze · vrouwen voorronde`;
-  if (slotIndex === SLOT_ROUND_QF) return `Ronde ${r} · Kwartfinales`;
-  if (slotIndex === SLOT_ROUND_SF) return `Ronde ${r} · Halve finales · vrouwenfinale`;
-  if (slotIndex === SLOT_ROUND_FINAL_MEN) return `Ronde ${r} · Mannenfinale`;
-  if (slotIndex >= 0 && slotIndex < PAUSE_SLOT_INDEX) return `Ronde ${r} · Voorrondes`;
-  return `Ronde ${r}`;
+  return `Ronde ${r} · ${scheduleRoundPhaseWord(slotIndex, competition)}`;
+}
+
+function matchScheduleComp(m, teams) {
+  if (m.placeholder && m.placeholderComp) return m.placeholderComp;
+  return teams.find((t) => t.id === m.homeId)?.competition || "men";
 }
 
 // Returns the current "active" slot index based on real clock time.
@@ -673,6 +687,25 @@ function isWomenKoMatch(m, teams) {
   return teams.find((t) => t.id === m.homeId)?.competition === "women";
 }
 
+function scheduleRoundBadgeTextForSlot(slotIndex, matchesInSlot, teams) {
+  const compHint = (() => {
+    if (!matchesInSlot.length) return "men";
+    if (slotIndex === SLOT_ROUND_SF) {
+      const hasWFin = matchesInSlot.some(
+        (m) =>
+          m.phase === "Final" &&
+          (isWomenKoMatch(m, teams) || (m.placeholder && m.placeholderComp === "women")),
+      );
+      const hasMSF = matchesInSlot.some((m) => m.phase === "SF" && isMenKoMatch(m, teams));
+      if (hasWFin && !hasMSF) return "women";
+      if (hasMSF && !hasWFin) return "men";
+      if (hasWFin && hasMSF) return "men";
+    }
+    return matchScheduleComp(matchesInSlot[0], teams);
+  })();
+  return scheduleRoundBadgeText(slotIndex, compHint);
+}
+
 /** QF / SF / finales op vaste velden en slotten (Copa-reglement). */
 function patchKnockoutPlacement(matches, teams) {
   const sortIds = (a, b) => String(a.id).localeCompare(String(b.id));
@@ -810,6 +843,40 @@ function ensureMenKoSkeleton(matches, teams) {
   if (hasRealMenKo) return matches;
   if (matches.some((m) => m.id === MEN_KO_PLACEHOLDER_IDS.qf[0])) return matches;
   return [...matches, ...buildMenKnockoutSkeleton()];
+}
+
+function buildWomenFinalSkeleton() {
+  const row = {
+    id: WOMEN_KO_PLACEHOLDER_FINAL,
+    homeId: null,
+    awayId: null,
+    groupId: null,
+    phase: "Final",
+    scoreHome: null,
+    scoreAway: null,
+    penHome: null,
+    penAway: null,
+    slotIndex: null,
+    fieldId: null,
+    status: "scheduled",
+    refTeamId: null,
+    refPersonName: null,
+    placeholder: true,
+    placeholderComp: "women",
+  };
+  patchKnockoutPlacement([row], buildFixedTeams());
+  return [row];
+}
+
+function ensureWomenFinalSkeleton(matches, teams) {
+  const hasRealWomenKo = matches.some((m) => {
+    if (m.phase === "group" || m.placeholder) return false;
+    const t = teams.find((x) => x.id === m.homeId);
+    return t?.competition === "women";
+  });
+  if (hasRealWomenKo) return matches;
+  if (matches.some((m) => m.id === WOMEN_KO_PLACEHOLDER_FINAL)) return matches;
+  return [...matches, ...buildWomenFinalSkeleton()];
 }
 
 // Auto-generate next knockout round from completed round winners
@@ -1032,10 +1099,11 @@ function createInitialState() {
   const groups = [...menGroups, ...womenGroups];
   const scheduled = scheduleGroupStageMatches(teams, groups);
   const koSkel = buildMenKnockoutSkeleton();
+  const wFinSkel = buildWomenFinalSkeleton();
   const base = {
     teams,
     groups,
-    matches: [...scheduled, ...koSkel],
+    matches: [...scheduled, ...koSkel, ...wFinSkel],
     screenView: ["welcome"],
     slotAdjustMin: {},
     screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
@@ -1092,6 +1160,30 @@ function reducer(state, action) {
                 homeId: k.homeId,
                 awayId: k.awayId,
               };
+              delete u.placeholder;
+              delete u.placeholderComp;
+              return u;
+            }
+            return m;
+          });
+          const merged = { ...state, matches: newMatches };
+          return { ...merged, matches: assignReferees(merged) };
+        }
+      }
+      if (comp === "women") {
+        const sortIds = (a, b) => String(a.id).localeCompare(String(b.id));
+        const finSkel = state.matches
+          .filter((m) => m.phase === "Final" && m.placeholder && m.placeholderComp === "women")
+          .sort(sortIds);
+        const scheduledKo = ko.map((m) => ({ ...m }));
+        patchKnockoutPlacement(scheduledKo, state.teams);
+        const allFinal = scheduledKo.length > 0 && scheduledKo.every((m) => m.phase === "Final");
+        if (finSkel.length === scheduledKo.length && allFinal) {
+          let qi = 0;
+          const newMatches = state.matches.map((m) => {
+            if (m.phase === "Final" && m.placeholder && m.placeholderComp === "women") {
+              const k = scheduledKo[qi++];
+              const u = { ...m, homeId: k.homeId, awayId: k.awayId };
               delete u.placeholder;
               delete u.placeholderComp;
               return u;
@@ -1201,6 +1293,7 @@ function reducer(state, action) {
       }
       if ((pl.koPlaceholderVersion ?? 0) < KO_PLACEHOLDER_VERSION) {
         matches = ensureMenKoSkeleton(matches, teams);
+        matches = ensureWomenFinalSkeleton(matches, teams);
       }
       const merged = {
         ...pl,
@@ -2063,7 +2156,7 @@ function AdminView({ state, dispatch }) {
             let slotIndices;
             if (comp === "women") {
               const fromMatches = allM.map((m) => m.slotIndex).filter((s) => s != null && s >= 0);
-              slotIndices = [...new Set([...fromMatches, ...[...WOMEN_GROUP_SLOTS]])].sort((a, b) => a - b);
+              slotIndices = [...new Set([...fromMatches, ...[...WOMEN_GROUP_SLOTS], SLOT_WOMEN_FINAL])].sort((a, b) => a - b);
             } else {
               const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
               slotIndices = maxS >= 0 ? Array.from({ length: maxS + 1 }, (_, i) => i) : [];
@@ -2077,7 +2170,7 @@ function AdminView({ state, dispatch }) {
             return (
               <div key={si} style={{ marginBottom: 18 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                  <Badge>{scheduleRoundLabel(si)}</Badge>
+                  <Badge>{scheduleRoundBadgeText(si, comp)}</Badge>
                   <span style={{ fontSize: 13, color: C.text2, fontWeight: 600 }}>{slotToTime(si)}</span>
                   <span style={{ fontSize: 10, color: C.text3 }}>{sm.length} wedstrijd{sm.length > 1 ? "en" : ""}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
@@ -2285,7 +2378,7 @@ function PlayerView({ state }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           {teamMatches.map((m) => (
             <div key={m.id}>
-              <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>🕐 {slotToTime(m.slotIndex ?? 0)} · {scheduleRoundLabel(m.slotIndex ?? 0)}</div>
+              <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>🕐 {slotToTime(m.slotIndex ?? 0)} · {scheduleRoundBadgeText(m.slotIndex ?? 0, matchScheduleComp(m, state.teams))}</div>
               <MatchCard match={m} teams={state.teams} compact refereeDisplayMode="player" />
             </div>
           ))}
@@ -2490,7 +2583,7 @@ function ScreenView({ state }) {
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ flexShrink: 0, marginBottom: 16, paddingBottom: 14, borderBottom: `2px solid ${C.orange}33` }}>
             <span style={{ fontFamily: FONT_DISPLAY, fontSize: 44, color: C.gold, ...HEAD, display: "block" }}>{titleExtra}</span>
-            <span style={{ fontSize: 28, color: C.text2, fontWeight: 600 }}>{slotToTime(slot)} · {scheduleRoundLabel(slot)}</span>
+            <span style={{ fontSize: 28, color: C.text2, fontWeight: 600 }}>{slotToTime(slot)} · {scheduleRoundBadgeTextForSlot(slot, ms, state.teams)}</span>
           </div>
           <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
             {ms.length === 0 ? (
