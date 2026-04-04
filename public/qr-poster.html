@@ -45,7 +45,7 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse at 50% 30%, rgba(216,18,18,0.07) 0%, transparent 60%);
+    background: radial-gradient(ellipse at 50% 30%, rgba(225,26,43,0.09) 0%, transparent 60%);
     pointer-events: none;
   }
 
@@ -64,7 +64,7 @@
     font-weight: 400;
     font-size: 52pt;
     color: #fff;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     line-height: 1.05;
     margin-bottom: 4mm;
@@ -198,10 +198,10 @@
 
   <div class="event-meta">6 april 2026 · Gent</div>
 
-  <div class="tagline">We spelen voor meer</div>
+  <div class="tagline">We play for more</div>
 
   <div class="qr-container">
-    <img id="qr-img" src="" alt="QR Code — Scan om mee te doen" />
+    <img id="qr-img" width="226" height="226" alt="QR Code — Scan om mee te doen" referrerpolicy="no-referrer" />
   </div>
 
   <div class="scan-text">Scan om je team te volgen</div>
@@ -249,7 +249,6 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js" crossorigin="anonymous"></script>
 <script>
   (function() {
     var CANONICAL_APP = 'https://copa-mundial.vercel.app';
@@ -317,7 +316,6 @@
       }
     }
 
-    /** Zelfde logica als de app-homepage QR: volledige staat → anders teams → anders alleen #player (harde lengte-cap). */
     function buildPlayerUrl(state) {
       var appRoot = getAppRoot();
       var hash = '#player';
@@ -354,27 +352,26 @@
       qrErr.textContent = msg;
     }
 
-    if (typeof QRCode === 'undefined' || !QRCode.toDataURL) {
-      showQrError('QR-bibliotheek niet geladen. Controleer je internetverbinding of blokker.');
-      return;
-    }
-
-    QRCode.toDataURL(
-      playerUrl,
-      {
-        width: 560,
-        margin: 2,
-        errorCorrectionLevel: 'L',
-        color: { dark: '#000000', light: '#ffffff' },
-      },
-      function (err, dataUrl) {
-        if (err) {
-          showQrError('QR genereren mislukt. Probeer opnieuw te laden of open de poster vanaf ' + CANONICAL_APP);
-          return;
-        }
-        qrImg.src = dataUrl;
+    /* Meerdere bronnen: adblockers blokkeren soms één API. */
+    var enc = encodeURIComponent(playerUrl);
+    var qrSources = [
+      'https://api.qrserver.com/v1/create-qr-code/?size=560x560&ecc=L&margin=2&data=' + enc,
+      'https://quickchart.io/qr?size=560&margin=2&text=' + enc,
+      'https://chart.googleapis.com/chart?chs=560x560&cht=qr&chld=L|2&chl=' + enc
+    ];
+    var qrAttempt = 0;
+    function tryLoadQr() {
+      if (qrAttempt >= qrSources.length) {
+        showQrError('QR kon niet geladen worden. Controleer je verbinding, schakel adblock uit voor deze pagina, of open vanaf de live site (niet file://).');
+        return;
       }
-    );
+      var src = qrSources[qrAttempt];
+      qrAttempt++;
+      qrImg.onload = function() { qrErr.style.display = 'none'; };
+      qrImg.onerror = function() { tryLoadQr(); };
+      qrImg.src = src;
+    }
+    tryLoadQr();
   })();
 </script>
 </body>
