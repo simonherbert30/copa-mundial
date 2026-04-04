@@ -22,7 +22,7 @@ const MEN_GROUP_EARLY_MATCH_CAPS = [5, 5, 5, 5, 5, 5, 5, 5];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
-const GROUP_SCHEDULE_VERSION = 7;
+const GROUP_SCHEDULE_VERSION = 8;
 /** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
 const KO_PLACEHOLDER_VERSION = 2;
 /** Vrouwenfinale ronde 12 (slot 11), mannenfinale ronde 13 (slot 12) — migratie patch. */
@@ -463,6 +463,56 @@ function fillRemainingMenGroupMatches(menMatches, existingNonMen, teams) {
   }
 }
 
+/**
+ * Laatste redmiddel: plaats nog openstaande mannen-groepsmatchen (alleen veld- en tegelijkheids-cap, geen gap-eis).
+ * Nodig als scheduleMatches het slot > 7 laat oplopen zodat er geen progress meer is.
+ */
+function forcePlaceRemainingMenGroupMatches(menMatches, existingNonMen, teams) {
+  const pending = menMatches.filter(
+    (m) => isMenGroupMatch(m, teams) && (m.slotIndex === null || m.slotIndex === undefined),
+  );
+  for (const m of pending) {
+    const baseCombined = () => [
+      ...existingNonMen,
+      ...menMatches.filter((x) => x.slotIndex != null && isMenGroupMatch(x, teams)),
+    ];
+    for (let slot = 0; slot <= MEN_GROUP_MAX_SLOT; slot++) {
+      if (!groupSlotAllowed(m, slot, teams)) continue;
+      const allPlaced = baseCombined();
+      const bySlot = {};
+      for (const x of allPlaced) {
+        if (x.slotIndex == null) continue;
+        if (!bySlot[x.slotIndex]) bySlot[x.slotIndex] = { fields: new Set(), teams: new Set() };
+        if (x.fieldId) bySlot[x.slotIndex].fields.add(x.fieldId);
+        bySlot[x.slotIndex].teams.add(x.homeId);
+        bySlot[x.slotIndex].teams.add(x.awayId);
+      }
+      const ex = bySlot[slot] || { fields: new Set(), teams: new Set() };
+      if (ex.teams.has(m.homeId) || ex.teams.has(m.awayId)) continue;
+      const nMenHere = allPlaced.filter(
+        (x) => x.slotIndex === slot && isMenGroupMatch(x, teams),
+      ).length;
+      if (nMenHere >= maxMenGroupMatchesAtSlot(slot)) continue;
+      const used = new Set(ex.fields);
+      m.slotIndex = slot;
+      m.fieldId = nextField(used);
+      break;
+    }
+  }
+}
+
+function matchVisibleForPlayerSchedule(m, teamId, teams) {
+  if (!(m.homeId === teamId || m.awayId === teamId)) return false;
+  const sel = teams.find((t) => t.id === teamId);
+  if (!sel) return false;
+  if (m.phase === "group") {
+    const homeComp = teams.find((t) => t.id === m.homeId)?.competition;
+    if (homeComp !== sel.competition) return false;
+    return m.slotIndex != null && m.slotIndex >= 0;
+  }
+  return true;
+}
+
 // Geen twee wedstrijden op rij per team; max 6 velden in eerste vier ronden; mannen geen groep in slot 8.
 // opts.matchCapAtSlot(slot) → max. aantal matchen in dit slot voor deze batch (optioneel); anders veldlimiet.
 function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [], opts = {}) {
@@ -546,6 +596,13 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
   };
 
   while (unscheduled.length > 0 && maxIter-- > 0) {
+    if (
+      teams.length &&
+      unscheduled.some((m) => isMenGroupMatch(m, teams)) &&
+      slot > MEN_GROUP_MAX_SLOT
+    ) {
+      break;
+    }
     const existing = existingBySlot[slot] || { fields: new Set(), teams: new Set() };
     const teamsInSlot = new Set(existing.teams);
     const fieldsUsed = new Set(existing.fields);
@@ -1067,6 +1124,7 @@ function scheduleGroupStageMatches(teams, groups) {
   };
   const menTrial = scheduleMatchesBest(menGroupMatches, 0, [], teams, 400, menSchedOpts);
   fillRemainingMenGroupMatches(menTrial, [], teams);
+  forcePlaceRemainingMenGroupMatches(menTrial, [], teams);
   const menWithSlots = menTrial.filter((m) => m.slotIndex != null);
   let womenScheduled;
   if (womenGroups.length === 1 && womenGroups[0].teamIds.length === 4) {
@@ -2327,14 +2385,18 @@ function PlayerView({ state }) {
     if (!selectedTeam) return;
     const notes = [];
     const upcoming = [...state.matches]
-      .filter((m) => (m.homeId === selectedTeam || m.awayId === selectedTeam) && m.status === "scheduled")
+      .filter(
+        (m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams) && m.status === "scheduled",
+      )
       .sort(compareMatchesBySchedule)[0];
     if (upcoming) {
       const opp = state.teams.find((t) => t.id === (upcoming.homeId === selectedTeam ? upcoming.awayId : upcoming.homeId));
       const field = FIELDS.find((f) => f.id === upcoming.fieldId);
       notes.push({ msg: `Volgende: vs ${opp?.name} op ${field?.sponsor} om ${slotToTime(upcoming.slotIndex ?? 0)}`, type: "info" });
     }
-    const live = state.matches.find((m) => (m.homeId === selectedTeam || m.awayId === selectedTeam) && m.status === "live");
+    const live = state.matches.find(
+      (m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams) && m.status === "live",
+    );
     if (live) notes.unshift({ msg: `🔴 LIVE — ${live.scoreHome} : ${live.scoreAway}`, type: "warning" });
     setNotifications(notes);
   }, [selectedTeam, state.matches, state.teams]);
@@ -2385,7 +2447,7 @@ function PlayerView({ state }) {
 
   const team = state.teams.find((t) => t.id === selectedTeam);
   const teamMatches = state.matches
-    .filter((m) => m.homeId === selectedTeam || m.awayId === selectedTeam)
+    .filter((m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams))
     .sort(compareMatchesBySchedule);
   const teamGroup = state.groups.find((g) => g.teamIds.includes(selectedTeam));
 
