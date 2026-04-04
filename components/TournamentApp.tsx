@@ -17,12 +17,12 @@ const SLOT_DURATION_MIN = 30;
 const PAUSE_SLOT_INDEX = 8;
 /** Vrouwengroep (4 teams): rondes 5, 7, 9 — steeds 2 duels zodat alle 4 teams spelen; slots 4, 6, 8. Ronde 5 = 4 man + 2 vrouw op het veld. */
 const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]);
-/** Mannen groepsfase: max. mannen-matchen per slot (slots 0–7 vóór pauze slot 8). Som = 40 (4×10 RR-duels). */
-const MEN_GROUP_EARLY_MATCH_CAPS = [5, 5, 5, 5, 5, 5, 5, 5];
+/** Mannen groepsfase: max. mannen-matchen per slot (slots 0–7 vóór pauze slot 8). Som = 36 (3×10 + 6 RR voor 19 teams: 3×5 + 1×4). */
+const MEN_GROUP_EARLY_MATCH_CAPS = [5, 5, 5, 5, 4, 4, 4, 4];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
-const GROUP_SCHEDULE_VERSION = 8;
+const GROUP_SCHEDULE_VERSION = 9;
 /** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
 const KO_PLACEHOLDER_VERSION = 2;
 /** Vrouwenfinale ronde 12 (slot 11), mannenfinale ronde 13 (slot 12) — migratie patch. */
@@ -93,7 +93,6 @@ const SEED_MEN = [
   "Zuid-Afrika",
   "Burkina Faso",
   "Congo",
-  "Duitsland",
 ];
 
 const DEMO_REF_NAME_POOL = [
@@ -2203,7 +2202,7 @@ function AdminView({ state, dispatch }) {
       {tab === "teams" && (
         <Section
           title="Teams"
-          sub={`Vaste deelnemers (${comp === "men" ? "20 mannenteams (4×5 — poule van 5: 4 groepswedstrijden)" : "4 vrouwenteams (1×4 — poule van 4: 3 groepswedstrijden)"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
+          sub={`Vaste deelnemers (${comp === "men" ? "19 mannenteams (3×5 + 1×4 — groepen 5: 4 groepswedstrijden, groep 4: 3 groepswedstrijden)" : "4 vrouwenteams (1×4 — poule van 4: 3 groepswedstrijden)"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
         >
           {isLocked && (
             <div style={{ padding: "8px 14px", borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accent}22`, color: C.accent, fontSize: 11, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
