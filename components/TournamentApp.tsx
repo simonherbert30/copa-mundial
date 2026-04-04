@@ -811,6 +811,34 @@ function encodeTeamsForUrl(state) {
   } catch { return ""; }
 }
 
+// qrcode.react throws RangeError("Data too long") if the string exceeds ~version-40 capacity (~2900 bytes).
+const QR_DATA_URL_MAX_LENGTH = 2200;
+
+/** URL for home-page QR: never exceeds QR capacity (falls back to shorter ?d= or plain #player). */
+function buildPlayerUrlForQr(state) {
+  if (typeof window === "undefined") return { url: "", hint: null };
+  const base = `${window.location.origin}${window.location.pathname}`;
+  const hash = "#player";
+  if (!state.teams?.length) return { url: `${base}${hash}`, hint: null };
+  const d = encodeStateForUrl(state);
+  const full = d ? `${base}?d=${d}${hash}` : `${base}${hash}`;
+  if (full.length <= QR_DATA_URL_MAX_LENGTH) return { url: full, hint: null };
+  const tEnc = encodeTeamsForUrl(state);
+  if (tEnc) {
+    const medium = `${base}?d=${tEnc}${hash}`;
+    if (medium.length <= QR_DATA_URL_MAX_LENGTH) {
+      return {
+        url: medium,
+        hint: "QR bevat een verkorte staat (alleen teams). Voor volledig schema: zelfde apparaat/browser of open vanaf een kortere link.",
+      };
+    }
+  }
+  return {
+    url: `${base}${hash}`,
+    hint: "QR-link is te lang voor een code. Gebruik deze site op het toestel waar de data al staat, of herstel de staat via Admin.",
+  };
+}
+
 // ============================================================
 // DESIGN SYSTEM — Kopa Events branding
 // ============================================================
@@ -2224,11 +2252,7 @@ export default function App() {
 
   _globalTimeOffset = state.timing?.offsetMin || 0;
 
-  const playerUrl = typeof window !== "undefined"
-    ? state.teams.length > 0
-      ? `${window.location.origin}${window.location.pathname}?d=${encodeStateForUrl(state)}#player`
-      : `${window.location.origin}${window.location.pathname}#player`
-    : "";
+  const { url: playerQrUrl, hint: playerQrHint } = buildPlayerUrlForQr(state);
 
   if (view === "screen") return <ScreenView state={state} />;
 
@@ -2268,9 +2292,16 @@ export default function App() {
       </div>
       <div style={{ marginTop: 24, animation: "slideUp .6s ease .3s both" }}>
         <div style={{ display: "inline-block", padding: 16, background: "#fff", borderRadius: 16 }}>
-          <QRCodeSVG value={playerUrl} size={220} bgColor="#ffffff" fgColor="#000000" />
+          {hydrated ? (
+            <QRCodeSVG value={playerQrUrl} size={220} level="L" bgColor="#ffffff" fgColor="#000000" />
+          ) : (
+            <div style={{ width: 220, height: 220, background: "#f0f0f0", borderRadius: 8 }} aria-hidden />
+          )}
         </div>
         <p style={{ color: C.text2, fontSize: 11, marginTop: 6 }}>Scan voor spelersweergave</p>
+        {hydrated && playerQrHint && (
+          <p style={{ color: C.orange, fontSize: 10, marginTop: 8, maxWidth: 320, lineHeight: 1.35 }}>{playerQrHint}</p>
+        )}
       </div>
       <SponsorBar />
       <Footer />
