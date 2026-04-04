@@ -9,9 +9,9 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:          #111e39;
-      --card:        #1a2d52;
-      --dark:        #0d1728;
+      --bg:          #8B1E26;
+      --card:        #7A1A22;
+      --dark:        #6B1820;
       --accent:      #d81212;
       --accent-bg:   rgba(216,18,18,0.14);
       --accent-border: rgba(216,18,18,0.30);
@@ -20,7 +20,7 @@
       --gold-border: rgba(232,196,101,0.30);
       --blue:        #1363d6;
       --green:       #3a9b3a;
-      --dark-red:    #911a28;
+      --dark-red:    #6B1820;
       --cream:       #f4f0ea;
       --white:       #ffffff;
       --text2:       rgba(255,255,255,0.75);
@@ -30,7 +30,13 @@
     }
 
     body {
-      background: var(--bg);
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse at 30% 20%, rgba(180, 80, 60, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 70% 80%, rgba(100, 20, 20, 0.2) 0%, transparent 50%),
+        linear-gradient(180deg, #8B1E26 0%, #6B1820 100%);
+      background-repeat: no-repeat;
+      background-size: 100% 100%;
       color: var(--white);
       font-family: 'Avenir Next LT Pro', 'Avenir Next', 'Avenir', -apple-system, 'Segoe UI', sans-serif;
       font-size: 12pt;

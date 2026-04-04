@@ -7,6 +7,15 @@
 <style>
   /* Titels: Cubano alleen als je font lokaal toevoegt; anders system fallback */
 
+  :root {
+    --kopa-red: #8B1E26;
+    --kopa-red-dark: #6B1820;
+    --kopa-bg-layers:
+      radial-gradient(ellipse at 30% 20%, rgba(180, 80, 60, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 70% 80%, rgba(100, 20, 20, 0.2) 0%, transparent 50%),
+      linear-gradient(180deg, var(--kopa-red) 0%, var(--kopa-red-dark) 100%);
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   @page {
@@ -15,7 +24,10 @@
   }
 
   body {
-    background: #111e39;
+    background-color: var(--kopa-red);
+    background-image: var(--kopa-bg-layers);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
     color: #fff;
     font-family: 'Avenir Next LT Pro', 'Avenir Next', 'Avenir', -apple-system, 'Segoe UI', sans-serif;
     min-height: 100vh;
@@ -29,7 +41,10 @@
   .poster {
     width: 297mm;
     min-height: 420mm;
-    background: #111e39;
+    background-color: var(--kopa-red);
+    background-image: var(--kopa-bg-layers);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
     padding: 40mm 30mm;
     display: flex;
     flex-direction: column;
@@ -183,7 +198,12 @@
   .footer .clavert { color: #e8c465; font-weight: 700; }
 
   @media print {
-    body { background: #111e39 !important; }
+    body {
+      background-color: var(--kopa-red) !important;
+      background-image: var(--kopa-bg-layers) !important;
+      background-repeat: no-repeat !important;
+      background-size: 100% 100% !important;
+    }
     .poster { page-break-inside: avoid; }
   }
 </style>
