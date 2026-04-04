@@ -14,7 +14,9 @@ const RESET_PASSWORD = "kopa_reset";
 const NUM_FIELDS = 8;
 const SLOT_DURATION_MIN = 30;
 const REST_SLOTS = 1;
-const FINALS_SLOT = 13; // slot 13 = 11:00 + 13×30min = 17:30
+const MEN_FINALS_SLOT = 13;   // slot 13 = 11:00 + 13×30min = 17:30
+const WOMEN_START_SLOT = 4;   // slot 4  = 11:00 + 4×30min  = 13:00
+const WOMEN_FINALS_SLOT = 10; // slot 10 = 11:00 + 10×30min = 16:00
 const MIN_MATCHES_PER_TEAM = 3;
 const POLL_INTERVAL = 3000;
 const START_HOUR = 11;
@@ -30,6 +32,17 @@ const SPONSORS = [
   "Integra", "Break Point", "CAPS", "true. food agency",
   "ghilles", "VICAR", "Jouer.", "BLAGEUR",
   "Fourchette", "McAlson", "Love Stories", "ByJean",
+];
+
+const SPONSOR_LOGOS = [
+  { name: "Vicar", src: "/sponsors/vicar.jpeg" },
+  { name: "CVC", src: "/sponsors/cvc.jpeg" },
+  { name: "AGO", src: "/sponsors/ago.jpeg" },
+  { name: "ByJean", src: "/sponsors/byjean.jpeg" },
+  { name: "Clavert", src: "/sponsors/clavert.jpeg" },
+  { name: "Jati Kebon", src: "/sponsors/jati-kebon.jpeg" },
+  { name: "Monsieur Hotels", src: "/sponsors/monsieur-hotels.jpeg" },
+  { name: "Nestborn", src: "/sponsors/nestborn.jpeg" },
 ];
 
 // --- SEED DATA ---
@@ -52,8 +65,10 @@ const shuffle = (a) => {
   return b;
 };
 
+let _globalTimeOffset = 0;
+
 function slotToTime(slotIndex) {
-  const d = new Date(2026, 3, 6, START_HOUR, START_MIN);
+  const d = new Date(2026, 3, 6, START_HOUR, START_MIN + _globalTimeOffset);
   d.setMinutes(d.getMinutes() + slotIndex * SLOT_DURATION_MIN);
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
@@ -195,10 +210,15 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
     }
 
     if (slotMatches.length === 0 && unscheduled.length > 0) {
-      // Nothing fit due to rest constraints — force-fill up to NUM_FIELDS ignoring rest
+      // Nothing fit due to rest constraints — force-fill ignoring rest but still
+      // enforcing the max-2-consecutive rule (never 3 consecutive half-hours)
+      const allSched = [...scheduled, ...existingMatches];
       for (let i = unscheduled.length - 1; i >= 0 && fieldsUsed.size < NUM_FIELDS; i--) {
         const m = unscheduled[i];
         if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
+        // Never schedule a 3rd consecutive slot for either team
+        if (consecutiveBefore(allSched, m.homeId, slot) >= 2) continue;
+        if (consecutiveBefore(allSched, m.awayId, slot) >= 2) continue;
         const fid = nextField(fieldsUsed);
         m.slotIndex = slot;
         m.fieldId = fid;
@@ -207,6 +227,27 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
         fieldsUsed.add(fid);
         slotMatches.push(m);
         unscheduled.splice(i, 1);
+      }
+      // Last resort: skip this slot entirely and try the next one
+      // This avoids ever scheduling 3 consecutive half-hours for any team
+      if (slotMatches.length === 0 && maxIter < 580) {
+        slot++;
+        continue;
+      }
+      // Absolute fallback (only if stuck for very long): allow force-fill to avoid infinite loop
+      if (slotMatches.length === 0) {
+        for (let i = unscheduled.length - 1; i >= 0 && fieldsUsed.size < NUM_FIELDS; i--) {
+          const m = unscheduled[i];
+          if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
+          const fid = nextField(fieldsUsed);
+          m.slotIndex = slot;
+          m.fieldId = fid;
+          teamsInSlot.add(m.homeId);
+          teamsInSlot.add(m.awayId);
+          fieldsUsed.add(fid);
+          slotMatches.push(m);
+          unscheduled.splice(i, 1);
+        }
       }
     }
 
@@ -225,6 +266,19 @@ function lastSlotOf(matches, teamId) {
   }
   return last;
 }
+
+// Count how many consecutive matches a team has ending at (slot - 1).
+// e.g. if team played slots 3 and 4, and we're asking about slot 5 → returns 2.
+function consecutiveBefore(matches, teamId, slot) {
+  let count = 0;
+  let s = slot - 1;
+  while (s >= 0 && matches.some((m) => (m.homeId === teamId || m.awayId === teamId) && m.slotIndex === s)) {
+    count++;
+    s--;
+  }
+  return count;
+}
+
 function nextField(used) {
   for (let i = 1; i <= NUM_FIELDS; i++) if (!used.has(i)) return i;
   return 1;
@@ -333,7 +387,7 @@ function nextRoundName(current) {
 }
 
 // Auto-generate next knockout round from completed round winners
-function generateNextRound(allMatches, completedRound, existingMatches) {
+function generateNextRound(allMatches, completedRound, existingMatches, comp = "men") {
   const roundMatches = allMatches.filter((m) => m.phase === completedRound && m.status === "completed");
   const winners = roundMatches.map(getMatchWinner).filter(Boolean);
   const next = nextRoundName(completedRound);
@@ -345,17 +399,41 @@ function generateNextRound(allMatches, completedRound, existingMatches) {
   const newMatches = pairs.map(([h, a]) => ({
     id: uid(), homeId: h, awayId: a, groupId: null, phase: next,
     scoreHome: null, scoreAway: null, penHome: null, penAway: null,
-    slotIndex: null, fieldId: null, status: "scheduled", refTeamId: null,
+    slotIndex: null, fieldId: null, status: "scheduled", refTeamId: null, refPersonName: null,
   }));
-  const maxSlot = existingMatches.length > 0 ? Math.max(...existingMatches.map((m) => m.slotIndex ?? 0)) + 2 : 0;
-  let result = scheduleMatches(newMatches, maxSlot, existingMatches);
-  // Force Final matches to FINALS_SLOT (17:30)
-  result = result.map((m) => m.phase === "Final" ? { ...m, slotIndex: FINALS_SLOT } : m);
+  const prevRoundMaxSlot = existingMatches
+    .filter((m) => m.phase === completedRound)
+    .reduce((mx, m) => Math.max(mx, m.slotIndex ?? 0), 0);
+  const startFrom = prevRoundMaxSlot + 2;
+  let result = scheduleMatches(newMatches, startFrom, existingMatches);
+  if (next === "Final") {
+    const targetSlot = comp === "women" ? WOMEN_FINALS_SLOT : MEN_FINALS_SLOT;
+    const scheduledSlot = result.length > 0 ? Math.max(...result.map((m) => m.slotIndex ?? 0)) : startFrom;
+    const finalSlot = Math.max(targetSlot, prevRoundMaxSlot + 1, scheduledSlot);
+    result = result.map((m) => m.phase === "Final" ? { ...m, slotIndex: finalSlot } : m);
+  }
   return result;
 }
 
-// Assign referee teams to matches: for each slot, find teams not playing → assign round-robin as refs
+// Build flat list of referee persons from men's teams that have names entered.
+// Each men's team can provide up to 2 referee names.
+function buildRefPersons(teams) {
+  const persons = [];
+  teams.filter((t) => t.competition === "men").forEach((t) => {
+    (t.referees || []).forEach((name, i) => {
+      if (name && name.trim()) persons.push({ id: `${t.id}_${i}`, name: name.trim(), teamId: t.id });
+    });
+  });
+  return persons;
+}
+
+// Assign referees to matches.
+// Uses individual referee persons (from men's teams' referee lists) when available,
+// falls back to assigning the free team name when no persons are registered.
 function assignReferees(state) {
+  const persons = buildRefPersons(state.teams);
+  const usePersons = persons.length > 0;
+
   // Build slot → playing team ids map
   const slotTeams = {};
   state.matches.forEach((m) => {
@@ -365,27 +443,42 @@ function assignReferees(state) {
     slotTeams[m.slotIndex].add(m.awayId);
   });
 
-  // For each slot, compute free teams
   const allTeamIds = state.teams.map((t) => t.id);
   const refCounts = {};
-  allTeamIds.forEach((id) => (refCounts[id] = 0));
+  if (usePersons) {
+    persons.forEach((p) => (refCounts[p.id] = 0));
+  } else {
+    allTeamIds.forEach((id) => (refCounts[id] = 0));
+  }
 
   const updated = state.matches.map((m) => {
     if (m.slotIndex === null) return m;
     const playing = slotTeams[m.slotIndex] || new Set();
-    const free = allTeamIds.filter((id) => !playing.has(id));
-    if (free.length === 0) return { ...m, refTeamId: null };
-    // Pick the free team with fewest ref assignments (round-robin)
-    free.sort((a, b) => (refCounts[a] || 0) - (refCounts[b] || 0));
-    const chosen = free[0];
-    refCounts[chosen] = (refCounts[chosen] || 0) + 1;
-    return { ...m, refTeamId: chosen };
+
+    if (usePersons) {
+      // Pick the referee person whose team is NOT playing this slot,
+      // with fewest assignments so far (round-robin balance)
+      const available = persons.filter((p) => !playing.has(p.teamId));
+      if (available.length === 0) return { ...m, refTeamId: null, refPersonName: null };
+      available.sort((a, b) => (refCounts[a.id] || 0) - (refCounts[b.id] || 0));
+      const chosen = available[0];
+      refCounts[chosen.id] = (refCounts[chosen.id] || 0) + 1;
+      return { ...m, refTeamId: chosen.teamId, refPersonName: chosen.name };
+    } else {
+      // Fallback: assign a free team (old behavior)
+      const free = allTeamIds.filter((id) => !playing.has(id));
+      if (free.length === 0) return { ...m, refTeamId: null, refPersonName: null };
+      free.sort((a, b) => (refCounts[a] || 0) - (refCounts[b] || 0));
+      const chosen = free[0];
+      refCounts[chosen] = (refCounts[chosen] || 0) + 1;
+      return { ...m, refTeamId: chosen, refPersonName: null };
+    }
   });
   return updated;
 }
 
 // --- REDUCER ---
-const INIT = { teams: [], groups: [], matches: [], screenView: "all" };
+const INIT = { teams: [], groups: [], matches: [], screenView: ["all"], timing: { offsetMin: 0 } };
 
 function reducer(state, action) {
   switch (action.type) {
@@ -420,7 +513,9 @@ function reducer(state, action) {
       const extraMatches = ensureMinMatches(groupMatches, newGroups, compTeams);
       groupMatches = [...groupMatches, ...extraMatches];
       // Schedule aware of other competition's matches to respect 6-field cap
-      const scheduled = scheduleMatches(groupMatches, 0, otherMatches);
+      // Women's group matches start at WOMEN_START_SLOT (13:00)
+      const startSlot = comp === "women" ? WOMEN_START_SLOT : 0;
+      const scheduled = scheduleMatches(groupMatches, startSlot, otherMatches);
       return { ...state, groups: [...otherGroups, ...newGroups], matches: [...otherMatches, ...scheduled] };
     }
     case "GEN_KNOCKOUT": {
@@ -438,8 +533,11 @@ function reducer(state, action) {
       const ko = generateKnockout(compGroups, state.matches, state.teams, comp);
       const maxSlot = state.matches.length > 0 ? Math.max(...state.matches.map((m) => m.slotIndex ?? 0)) + 2 : 0;
       let scheduled = scheduleMatches(ko, maxSlot, state.matches);
-      // Force Final matches to FINALS_SLOT (17:30)
-      scheduled = scheduled.map((m) => m.phase === "Final" ? { ...m, slotIndex: FINALS_SLOT } : m);
+      // Force Final to competition-specific finals slot, never before preceding round
+      const targetFinalSlot = comp === "women" ? WOMEN_FINALS_SLOT : MEN_FINALS_SLOT;
+      const sfMaxSlot = scheduled.filter((m) => m.phase !== "Final").reduce((mx, m) => Math.max(mx, m.slotIndex ?? 0), maxSlot - 2);
+      const finalSlot = Math.max(targetFinalSlot, sfMaxSlot + 1);
+      scheduled = scheduled.map((m) => m.phase === "Final" ? { ...m, slotIndex: finalSlot } : m);
       return { ...state, matches: [...state.matches, ...scheduled] };
     }
     case "SCORE": {
@@ -452,19 +550,27 @@ function reducer(state, action) {
         return updated;
       });
 
-      // Auto-generate next knockout round if a round just completed
+      // Auto-generate next knockout round if a round just completed (filter by competition)
       if (status === "completed") {
         const justCompleted = newMatches.find((m) => m.id === id);
         if (justCompleted && justCompleted.phase !== "group" && justCompleted.phase !== "Final") {
+          const matchComp = state.teams.find((t) => t.id === justCompleted.homeId)?.competition || "men";
           const round = justCompleted.phase;
-          const roundMatches = newMatches.filter((m) => m.phase === round);
+          const roundMatches = newMatches.filter((m) => {
+            if (m.phase !== round) return false;
+            const t = state.teams.find((x) => x.id === m.homeId);
+            return t?.competition === matchComp;
+          });
           const allDone = roundMatches.every((m) => m.status === "completed");
           const allHaveWinners = roundMatches.every((m) => getMatchWinner(m) !== null);
-          // Check next round doesn't already exist
           const next = nextRoundName(round);
-          const nextExists = next && newMatches.some((m) => m.phase === next);
+          const nextExists = next && newMatches.some((m) => {
+            if (m.phase !== next) return false;
+            const t = state.teams.find((x) => x.id === m.homeId);
+            return t?.competition === matchComp;
+          });
           if (allDone && allHaveWinners && next && !nextExists) {
-            const nextRoundMatches = generateNextRound(newMatches, round, newMatches);
+            const nextRoundMatches = generateNextRound(newMatches, round, newMatches, matchComp);
             newMatches = [...newMatches, ...nextRoundMatches];
           }
         }
@@ -473,10 +579,31 @@ function reducer(state, action) {
     }
     case "ASSIGN_REFS":
       return { ...state, matches: assignReferees(state) };
+    case "SET_REF_NAME": {
+      // payload: { teamId, index (0 or 1), name }
+      const { teamId, index, name } = action.payload;
+      return {
+        ...state,
+        teams: state.teams.map((t) => {
+          if (t.id !== teamId) return t;
+          const refs = [...(t.referees || ["", ""])];
+          refs[index] = name;
+          return { ...t, referees: refs };
+        }),
+      };
+    }
+    case "SET_TIMING":
+      return { ...state, timing: { ...(state.timing || {}), ...action.payload } };
     case "SCREEN_VIEW":
       return { ...state, screenView: action.payload };
+    case "TOGGLE_SCREEN_VIEW": {
+      const cur = Array.isArray(state.screenView) ? state.screenView : [state.screenView];
+      const vid = action.payload;
+      const nv = cur.includes(vid) ? cur.filter((v) => v !== vid) : [...cur, vid];
+      return { ...state, screenView: nv.length === 0 ? ["all"] : nv };
+    }
     case "LOAD":
-      return { ...action.payload };
+      return { ...action.payload, timing: { offsetMin: 0, ...(action.payload.timing || {}) }, screenView: action.payload.screenView || ["all"] };
     case "RESET":
       return { ...INIT };
     case "FILL_SCORES": {
@@ -503,7 +630,7 @@ function reducer(state, action) {
             return m.phase === phase && t?.competition === fillComp;
           }).every((m) => m.status === "completed");
           if (roundComplete && !nextExists) {
-            const nextRoundMatches = generateNextRound(newMatches, phase, newMatches);
+            const nextRoundMatches = generateNextRound(newMatches, phase, newMatches, fillComp);
             newMatches = [...newMatches, ...nextRoundMatches];
           }
         }
@@ -530,7 +657,7 @@ function encodeStateForUrl(state) {
     const groupIdx: Record<string, number> = {};
     state.groups.forEach((g, i) => { groupIdx[g.id] = i; });
     const compact = {
-      t: state.teams.map((t) => [t.name, t.competition === "men" ? 0 : 1]),
+      t: state.teams.map((t) => [t.name, t.competition === "men" ? 0 : 1, ...(t.referees || [])]),
       g: state.groups.map((g) => [g.name, g.teamIds.map((id) => teamIdx[id] ?? -1)]),
       m: state.matches.map((m) => [
         teamIdx[m.homeId] ?? -1, teamIdx[m.awayId] ?? -1,
@@ -772,7 +899,7 @@ function MatchCard({ match, teams, compact, onScore, showField = true }) {
         </div>
         <span style={{ flex: 1, fontSize: compact ? 13 : 15, fontWeight: 700, color: C.text }}>{away?.name || "TBD"}</span>
       </div>
-      {ref && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {ref.name}</div>}
+      {ref && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {match.refPersonName ? `${match.refPersonName} (${ref.name})` : ref.name}</div>}
       {onScore && <ScoreEditor match={match} onScore={onScore} />}
     </Card>
   );
@@ -988,6 +1115,142 @@ function KnockoutBracket({ matches, teams, dispatch, showField = false, bigScree
 }
 
 // ============================================================
+// MIRRORED KNOCKOUT BRACKET (Big Screen)
+// ============================================================
+function MirroredKnockoutBracket({ matches, teams, showField = false }) {
+  const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
+  if (!phases.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
+
+  const CARD_W = 360;
+  const CARD_H = 110;
+  const V_GAP = 20;
+  const H_GAP = 50;
+  const LABEL_H = 44;
+  const PHASE_LABELS = { R16: "Ronde van 16", QF: "Kwartfinales", SF: "Halve finales", Final: "Finale" };
+
+  const byPhase = {};
+  phases.forEach((p) => { byPhase[p] = matches.filter((m) => m.phase === p); });
+
+  const hasFinal = phases.includes("Final");
+  const preFinalPhases = phases.filter((p) => p !== "Final");
+  const unit = CARD_H + V_GAP;
+
+  const leftByPhase = {};
+  const rightByPhase = {};
+  preFinalPhases.forEach((p) => {
+    const m = byPhase[p];
+    const half = Math.ceil(m.length / 2);
+    leftByPhase[p] = m.slice(0, half);
+    rightByPhase[p] = m.slice(half);
+  });
+
+  const firstPhase = preFinalPhases[0];
+  const firstCount = leftByPhase[firstPhase]?.length || 1;
+  const totalH = firstCount * unit;
+  const nPreCols = preFinalPhases.length;
+  const nCols = hasFinal ? 2 * nPreCols + 1 : 2 * nPreCols;
+  const colW = CARD_W + H_GAP;
+  const totalW = nCols * colW - H_GAP;
+
+  const matchY = (ri, mi) => {
+    const factor = Math.pow(2, ri);
+    return (mi * factor + (factor - 1) / 2) * unit;
+  };
+
+  const renderCard = (m, x, y) => {
+    const home = teams.find((t) => t.id === m.homeId);
+    const away = teams.find((t) => t.id === m.awayId);
+    const isDone = m.status === "completed";
+    const isLiveM = m.status === "live";
+    const winner = getMatchWinner(m);
+    return (
+      <div key={m.id} style={{ position: "absolute", left: x, top: y, width: CARD_W }}>
+        <div style={{ background: C.card, border: `1px solid ${isLiveM ? C.live + "55" : isDone ? C.gold + "44" : C.border}`, borderRadius: 12, overflow: "hidden" }}>
+          {[{ tid: m.homeId, score: m.scoreHome, name: home?.name }, { tid: m.awayId, score: m.scoreAway, name: away?.name }].map((side, si) => (
+            <div key={si} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: si === 0 ? `1px solid ${C.border}` : "none", background: winner === side.tid ? C.goldBg : "transparent" }}>
+              <span style={{ fontSize: 24, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{side.name || "TBD"}</span>
+              <span style={{ fontSize: 28, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: 30, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{isDone || isLiveM ? (side.score ?? 0) : "–"}</span>
+            </div>
+          ))}
+          {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
+            <div style={{ fontSize: 14, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} strafsch.)</div>
+          )}
+          {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: 11, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
+        </div>
+      </div>
+    );
+  };
+
+  const cards = [];
+  const lines = [];
+
+  preFinalPhases.forEach((phase, pi) => {
+    const leftX = pi * colW;
+    const rightX = (nCols - 1 - pi) * colW;
+    const leftMatches = leftByPhase[phase] || [];
+    const rightMatches = rightByPhase[phase] || [];
+
+    leftMatches.forEach((m, mi) => cards.push(renderCard(m, leftX, matchY(pi, mi) + LABEL_H)));
+    rightMatches.forEach((m, mi) => cards.push(renderCard(m, rightX, matchY(pi, mi) + LABEL_H)));
+
+    if (pi > 0) {
+      const prevLeftX = (pi - 1) * colW + CARD_W;
+      const curLeftX = pi * colW;
+      leftMatches.forEach((_, mi) => {
+        const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
+        const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
+        const pY = matchY(pi, mi) + CARD_H / 2;
+        const midX = prevLeftX + H_GAP / 2;
+        lines.push(<g key={`l-${phase}-${mi}`}><line x1={prevLeftX} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" /><line x1={prevLeftX} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={pY} x2={curLeftX} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" /></g>);
+      });
+      const prevRightX = (nCols - pi) * colW;
+      const curRightX = (nCols - 1 - pi) * colW + CARD_W;
+      rightMatches.forEach((_, mi) => {
+        const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
+        const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
+        const pY = matchY(pi, mi) + CARD_H / 2;
+        const midX = curRightX + H_GAP / 2;
+        lines.push(<g key={`r-${phase}-${mi}`}><line x1={prevRightX} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" /><line x1={prevRightX} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={pY} x2={curRightX} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" /></g>);
+      });
+    }
+  });
+
+  if (hasFinal) {
+    const finalX = nPreCols * colW;
+    const finalY = totalH / 2 - CARD_H / 2;
+    const fm = byPhase["Final"][0];
+    if (fm) cards.push(renderCard(fm, finalX, finalY + LABEL_H));
+
+    if (preFinalPhases.length > 0) {
+      const lastLeftX = (nPreCols - 1) * colW + CARD_W;
+      const lastRightX = (nPreCols + 1) * colW;
+      const fy = finalY + CARD_H / 2;
+      const lastPi = preFinalPhases.length - 1;
+      const leftSFY = matchY(lastPi, 0) + CARD_H / 2;
+      const rightSFY = matchY(lastPi, 0) + CARD_H / 2;
+      lines.push(<g key="final-l"><line x1={lastLeftX} y1={leftSFY} x2={finalX} y2={fy} stroke={C.accent} strokeWidth="2" strokeOpacity="0.4" /></g>);
+      lines.push(<g key="final-r"><line x1={lastRightX} y1={rightSFY} x2={finalX + CARD_W} y2={fy} stroke={C.accent} strokeWidth="2" strokeOpacity="0.4" /></g>);
+    }
+  }
+
+  return (
+    <div style={{ overflowX: "auto", overflowY: "auto", height: "100%" }}>
+      <div style={{ position: "relative", width: totalW, height: totalH + LABEL_H, margin: "0 auto" }}>
+        <svg style={{ position: "absolute", top: LABEL_H, left: 0, pointerEvents: "none" }} width={totalW} height={totalH} viewBox={`0 0 ${totalW} ${totalH}`}>{lines}</svg>
+        {preFinalPhases.map((phase, pi) => (
+          <div key={`label-${phase}`}>
+            <div style={{ position: "absolute", left: pi * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 18, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>{PHASE_LABELS[phase] || phase}</div>
+            <div style={{ position: "absolute", left: (nCols - 1 - pi) * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 18, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>{PHASE_LABELS[phase] || phase}</div>
+          </div>
+        ))}
+        {hasFinal && <div style={{ position: "absolute", left: nPreCols * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 22, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>Finale</div>}
+        {cards}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // RESET PANEL
 // ============================================================
 function ResetPanel({ dispatch }) {
@@ -1095,6 +1358,23 @@ function AdminView({ state, dispatch }) {
               <Btn v="secondary" onClick={() => dispatch({ type: "SEED" })}>Laad Testdata (19M + 4V)</Btn>
             </div>
           )}
+          {comp === "men" && teams.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gold, marginBottom: 10, fontFamily: FONT_DISPLAY }}>👔 Scheidsrechters per team</h3>
+              <p style={{ fontSize: 11, color: C.text2, marginBottom: 10 }}>Geef twee scheidsrechternamen per mannenteam in. Zij fluiten ook vrouwenwedstrijden.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
+                {teams.map((t) => (
+                  <Card key={t.id} style={{ padding: 10 }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: C.text, marginBottom: 6 }}>{t.name}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <Input value={(t.referees || ["", ""])[0]} onChange={(v) => dispatch({ type: "SET_REF_NAME", payload: { teamId: t.id, index: 0, name: v } })} placeholder="Scheidsrechter 1" style={{ fontSize: 11, padding: "6px 8px" }} />
+                      <Input value={(t.referees || ["", ""])[1]} onChange={(v) => dispatch({ type: "SET_REF_NAME", payload: { teamId: t.id, index: 1, name: v } })} placeholder="Scheidsrechter 2" style={{ fontSize: 11, padding: "6px 8px" }} />
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </Section>
       )}
 
@@ -1168,16 +1448,23 @@ function AdminView({ state, dispatch }) {
         </Section>
       )}
 
-      {tab === "display" && (
-        <Section title="Groot Scherm Beheer" sub="Kies wat weergegeven wordt">
+      {tab === "display" && (() => {
+        const selectedViews = Array.isArray(state.screenView) ? state.screenView : [state.screenView || "all"];
+        return (
+        <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — bij meerdere wisselen ze elke 8 seconden">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welkomstscherm" }, { id: "all", label: "Alle Wedstrijden" }, { id: "next-matches", label: "Volgende Wedstrijden" }, { id: "men-groups", label: "Mannen Groepen" }, { id: "women-groups", label: "Vrouwen Groepen" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => (
-              <Card key={v.id} onClick={() => dispatch({ type: "SCREEN_VIEW", payload: v.id })}
-                style={{ cursor: "pointer", textAlign: "center", padding: 14, border: state.screenView === v.id ? `2px solid ${C.accent}` : `1px solid ${C.border}`, background: state.screenView === v.id ? C.accentBg : C.card }}>
-                <span style={{ fontWeight: 700, fontSize: 12, color: state.screenView === v.id ? C.accent : C.text }}>{v.label}</span>
+            {[{ id: "welcome", label: "Welkomstscherm" }, { id: "all", label: "Alle Wedstrijden" }, { id: "next-matches", label: "Volgende Wedstrijden" }, { id: "men-groups", label: "Mannen Groepen" }, { id: "women-groups", label: "Vrouwen Groepen" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
+              const isSel = selectedViews.includes(v.id);
+              return (
+              <Card key={v.id} onClick={() => dispatch({ type: "TOGGLE_SCREEN_VIEW", payload: v.id })}
+                style={{ cursor: "pointer", textAlign: "center", padding: 14, border: isSel ? `2px solid ${C.accent}` : `1px solid ${C.border}`, background: isSel ? C.accentBg : C.card }}>
+                <span style={{ fontWeight: 700, fontSize: 12, color: isSel ? C.accent : C.text }}>{v.label}</span>
+                {isSel && <div style={{ fontSize: 10, color: C.accent, marginTop: 2 }}>✓ Actief</div>}
               </Card>
-            ))}
+              );
+            })}
           </div>
+          {selectedViews.length > 1 && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: C.goldBg, fontSize: 11, color: C.gold, fontWeight: 600 }}>⏱ {selectedViews.length} weergaven geselecteerd — wisselt elke 8 seconden</div>}
           <Card style={{ marginTop: 14, textAlign: "center" }}>
             <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave.</p>
           </Card>
@@ -1213,12 +1500,27 @@ function AdminView({ state, dispatch }) {
               </>
             );
           })()}
+          <Card style={{ marginTop: 14 }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, color: C.gold, fontFamily: FONT_DISPLAY }}>⏱ Tijdsaanpassing</h3>
+            <p style={{ fontSize: 11, color: C.text2, marginBottom: 10 }}>Als het toernooi uitloopt, verschuif de weergegeven tijden.</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) - 15 } })}>-15 min</Btn>
+              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) - 5 } })}>-5 min</Btn>
+              <span style={{ fontSize: 16, fontWeight: 800, color: state.timing?.offsetMin ? C.orange : C.text, minWidth: 80, textAlign: "center", fontFamily: FONT_DISPLAY }}>
+                {(state.timing?.offsetMin || 0) === 0 ? "Op schema" : `${state.timing.offsetMin > 0 ? "+" : ""}${state.timing.offsetMin} min`}
+              </span>
+              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) + 5 } })}>+5 min</Btn>
+              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) + 15 } })}>+15 min</Btn>
+              {(state.timing?.offsetMin || 0) !== 0 && <Btn sz="sm" v="ghost" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: 0 } })}>Reset</Btn>}
+            </div>
+          </Card>
           <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gevaarzone</h3>
             <ResetPanel dispatch={dispatch} />
           </div>
         </Section>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -1255,8 +1557,8 @@ function PlayerView({ state }) {
           <p style={{ color: C.gold, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", marginTop: 3 }}>We spelen voor meer</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {[{ id: "men", label: "Mannencompetitie", n: state.teams.filter((t) => t.competition === "men").length },
-            { id: "women", label: "Vrouwencompetitie", n: state.teams.filter((t) => t.competition === "women").length }].map((c) => (
+          {[{ id: "men", label: "Mannen competitie", n: state.teams.filter((t) => t.competition === "men").length },
+            { id: "women", label: "Vrouwen competitie", n: state.teams.filter((t) => t.competition === "women").length }].map((c) => (
             <Card key={c.id} onClick={() => setComp(c.id)} style={{ cursor: "pointer", textAlign: "center", padding: 18 }}>
               <div style={{ fontSize: 26 }}>⚽</div>
               <h3 style={{ color: C.white, margin: "5px 0 2px", fontSize: 16, fontFamily: FONT_DISPLAY, fontWeight: 700 }}>{c.label}</h3>
@@ -1362,14 +1664,14 @@ function WelcomeScreenDisplay() {
             <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <Badge color={C.blue}>Vrouwenbeker</Badge>
+                  <Badge color={C.blue}>Vrouwen competitie</Badge>
                 </div>
                 <p style={{ color: C.text, fontSize: 26, margin: "0 0 6px" }}>Iedereen speelt één keer tegen elkaar</p>
                 <p style={{ color: C.text2, fontSize: 22, margin: 0 }}>De beste 2 teams spelen de finale</p>
               </div>
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <Badge color={C.orange}>Mannenbeker</Badge>
+                  <Badge color={C.orange}>Mannen competitie</Badge>
                 </div>
                 <p style={{ color: C.text, fontSize: 26, margin: "0 0 10px" }}>Groepsfase — elk team speelt minimaal 3 wedstrijden</p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1385,8 +1687,10 @@ function WelcomeScreenDisplay() {
             </div>
           </div>
         </div>
-        <div style={{ animation: "slideUp .6s ease .4s both" }}>
-          <SponsorBar />
+        <div style={{ animation: "slideUp .6s ease .4s both", display: "flex", justifyContent: "center", gap: 24, flexWrap: "wrap" }}>
+          {SPONSOR_LOGOS.map((s) => (
+            <img key={s.name} src={s.src} alt={s.name} style={{ height: 56, objectFit: "contain", borderRadius: 8, opacity: 0.85 }} />
+          ))}
         </div>
       </div>
     </div>
@@ -1406,73 +1710,32 @@ function getNextMatchesSlot(matches) {
 // ============================================================
 function ScreenView({ state }) {
   const [, setTick] = useState(0);
+  const [viewIndex, setViewIndex] = useState(0);
   useEffect(() => { const iv = setInterval(() => setTick((t) => t + 1), POLL_INTERVAL); return () => clearInterval(iv); }, []);
 
-  const view = state.screenView || "all";
+  const views = Array.isArray(state.screenView) ? state.screenView : [state.screenView || "all"];
+  useEffect(() => {
+    if (views.length <= 1) return;
+    const iv = setInterval(() => setViewIndex((p) => (p + 1) % views.length), 8000);
+    return () => clearInterval(iv);
+  }, [views.length]);
+
+  const view = views[viewIndex % views.length];
   if (view === "welcome") return <WelcomeScreenDisplay />;
   const all = state.matches;
 
-  // Shared header bar
-  const Header = () => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 36px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-        <Logo size="xl" />
-        <div>
-          <div style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 52, color: C.white, letterSpacing: "-0.03em", lineHeight: 1 }}>
-            Copa <span style={{ color: C.gold }}>Mundial</span>
-          </div>
-          <p style={{ margin: 0, fontSize: 32, color: C.text2 }}>6 april 2026 · Gent</p>
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        {SPONSORS.slice(0, 8).map((s) => <div key={s} style={{ padding: "6px 16px", borderRadius: 5, background: C.card, border: `1px solid ${C.border}`, fontSize: 24, color: C.text2, fontWeight: 700 }}>{s}</div>)}
-      </div>
-    </div>
-  );
-
-  // Fields bar (status-based, no clock time)
-  const FieldsBar = ({ matches: fm }) => {
-    // Find the current "active" slot: lowest slot with any live match, or lowest slot with scheduled matches
-    const liveSlot = fm.filter((m) => m.status === "live").map((m) => m.slotIndex ?? 0);
-    const scheduledSlots = fm.filter((m) => m.status === "scheduled").map((m) => m.slotIndex ?? 0);
-    const activeSlot = liveSlot.length > 0
-      ? Math.min(...liveSlot)
-      : scheduledSlots.length > 0
-      ? Math.min(...scheduledSlots)
-      : -1;
-
+  const SponsorLogos = () => {
+    const idx = Math.floor(Date.now() / 30000) % SPONSOR_LOGOS.length;
+    const l1 = SPONSOR_LOGOS[idx];
+    const l2 = SPONSOR_LOGOS[(idx + 4) % SPONSOR_LOGOS.length];
     return (
-      <div style={{ padding: "10px 36px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8 }}>
-          {FIELDS.map((f) => {
-            const liveMatch = all.find((m) => m.fieldId === f.id && m.status === "live");
-            const currentMatch = activeSlot >= 0 ? all.find((m) => m.fieldId === f.id && m.slotIndex === activeSlot) : null;
-            const nextMatch = [...all].filter((m) => m.fieldId === f.id && m.status === "scheduled")
-              .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0))[0];
-            const shownMatch = liveMatch || currentMatch || nextMatch ||
-              [...all].filter((m) => m.fieldId === f.id && m.status === "completed").sort((a, b) => (b.slotIndex ?? 0) - (a.slotIndex ?? 0))[0];
-            const home = shownMatch ? state.teams.find((t) => t.id === shownMatch.homeId) : null;
-            const away = shownMatch ? state.teams.find((t) => t.id === shownMatch.awayId) : null;
-            const isL = shownMatch?.status === "live";
-            const isCur = shownMatch && shownMatch.slotIndex === activeSlot;
-            return (
-              <div key={f.id} style={{ background: isL ? `${C.live}0a` : isCur ? C.accentBg : C.card, border: `1px solid ${isL ? C.live + "50" : isCur ? C.accent + "40" : C.border}`, borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: C.gold, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{f.sponsor}</div>
-                {shownMatch && <div style={{ fontSize: 22, color: isL ? C.live : C.text3, fontWeight: 700, marginBottom: 3 }}>{slotToTime(shownMatch.slotIndex ?? 0)}</div>}
-                {shownMatch ? (
-                  <>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{home?.name || "TBD"}</div>
-                    <div style={{ fontSize: 36, fontWeight: 900, color: isL ? C.live : C.text3, margin: "2px 0" }}>{isL ? `${shownMatch.scoreHome}–${shownMatch.scoreAway}` : "vs"}</div>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: C.white, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{away?.name || "TBD"}</div>
-                  </>
-                ) : <div style={{ fontSize: 22, color: C.text3, padding: "4px 0" }}>—</div>}
-              </div>
-            );
-          })}
-        </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 24px", flexShrink: 0 }}>
+        <img src={l1.src} alt={l1.name} style={{ height: 50, objectFit: "contain", borderRadius: 6 }} />
+        <img src={l2.src} alt={l2.name} style={{ height: 50, objectFit: "contain", borderRadius: 6 }} />
       </div>
     );
   };
+
 
   // ---- "ALL MATCHES" view — shows current active slot + next slot (fits on screen) ----
   if (view === "all") {
@@ -1487,7 +1750,7 @@ function ScreenView({ state }) {
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
-        <Header />
+        <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "14px 36px", display: "flex", flexDirection: "column", gap: 16 }}>
           {activeMatches.length > 0 && (
             <div style={{ flex: 1, minHeight: 0 }}>
@@ -1515,7 +1778,7 @@ function ScreenView({ state }) {
                         </span>
                         <span style={{ flex: 1, fontSize: 48, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
                     </div>
                   );
                 })}
@@ -1544,7 +1807,7 @@ function ScreenView({ state }) {
                         <span style={{ fontSize: 32, fontWeight: 700, color: C.text3, padding: "0 14px", minWidth: 120, textAlign: "center", fontFamily: FONT_DISPLAY }}>vs</span>
                         <span style={{ flex: 1, fontSize: 44, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 18, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 18, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
                     </div>
                   );
                 })}
@@ -1566,7 +1829,7 @@ function ScreenView({ state }) {
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
-        <Header />
+        <SponsorLogos />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 36px", overflow: "hidden" }}>
           <div style={{ flex: 1, minHeight: 0, marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
@@ -1590,7 +1853,7 @@ function ScreenView({ state }) {
                         <span style={{ fontSize: 40, fontWeight: 700, color: C.text3, padding: "2px 18px", fontFamily: FONT_DISPLAY, flexShrink: 0 }}>vs</span>
                         <span style={{ flex: 1, fontSize: 52, fontWeight: 800, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 22, color: C.text3, marginTop: 8, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 22, color: C.text3, marginTop: 8, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
                     </div>
                   );
                 })}
@@ -1619,7 +1882,7 @@ function ScreenView({ state }) {
                         <span style={{ fontSize: 32, color: C.text3, padding: "0 12px", flexShrink: 0 }}>vs</span>
                         <span style={{ flex: 1, fontSize: 42, fontWeight: 700, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{away?.name || "TBD"}</span>
                       </div>
-                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {ref.name}</div>}
+                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
                     </div>
                   );
                 })}
@@ -1638,13 +1901,13 @@ function ScreenView({ state }) {
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
-        <Header />
+        <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 18 }}>
           {womenGroups.length > 0 && (
             <div style={{ flex: "0 0 auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.blue}30` }}>
                 <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: C.blue, letterSpacing: "-0.01em" }}>Vrouwenbeker</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: C.blue, letterSpacing: "-0.01em" }}>Vrouwen competitie</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
                 {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
@@ -1655,7 +1918,7 @@ function ScreenView({ state }) {
             <div style={{ flex: "0 0 auto" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.orange}30` }}>
                 <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: C.orange, letterSpacing: "-0.01em" }}>Mannenbeker</span>
+                <span style={{ fontFamily: FONT_DISPLAY, fontWeight: 800, fontSize: 50, color: C.orange, letterSpacing: "-0.01em" }}>Mannen competitie</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
                 {menGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
@@ -1672,14 +1935,13 @@ function ScreenView({ state }) {
   if (view === "men-groups" || view === "women-groups") {
     const compFilter = view === "men-groups" ? "men" : "women";
     const compColor = compFilter === "men" ? C.orange : C.blue;
-    const compLabel = compFilter === "men" ? "Mannenbeker" : "Vrouwenbeker";
+    const compLabel = compFilter === "men" ? "Mannen competitie" : "Vrouwen competitie";
     const compGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === compFilter);
     const compMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === compFilter);
-    const live = compMatches.filter((m) => m.status === "live");
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
-        <Header />
+        <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${compColor}30`, flexShrink: 0 }}>
             <div style={{ width: 6, height: 36, background: compColor, borderRadius: 2 }} />
@@ -1696,15 +1958,14 @@ function ScreenView({ state }) {
   // ---- "MEN-KNOCKOUT" view ----
   if (view === "men-knockout") {
     const koMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase !== "group");
-    const live = koMatches.filter((m) => m.status === "live");
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
-        <Header />
+        <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, overflow: "hidden" }}>
             {koMatches.length > 0 ? (
-              <KnockoutBracket matches={koMatches} teams={state.teams} showField={true} bigScreen={true} />
+              <MirroredKnockoutBracket matches={koMatches} teams={state.teams} showField={true} />
             ) : (
               <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Voltooi de groepsfase voor de knockout.</div>
             )}
@@ -1722,7 +1983,7 @@ function ScreenView({ state }) {
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
-        <Header />
+        <SponsorLogos />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 36px" }}>
           {finalMatches.length === 0 ? (
             <div style={{ textAlign: "center" }}>
@@ -1809,21 +2070,29 @@ function LoginScreen({ onLogin }) {
 // APP
 // ============================================================
 export default function App() {
-  const [state, dispatch] = useReducer(reducer, INIT, (init) => {
-    // On initial load: try URL-encoded state first (for cross-device QR), then localStorage
-    if (typeof window !== "undefined") {
-      const urlParam = getUrlStateParam();
-      if (urlParam) {
-        const decoded = decodeStateFromUrl(urlParam);
-        if (decoded && decoded.teams.length > 0) return decoded;
-      }
-    }
-    return load() || init;
-  });
+  const [state, dispatch] = useReducer(reducer, INIT);
   const [view, setView] = useState("home");
   const [adminAuth, setAdminAuth] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => { save(state); }, [state]);
+  // Load state from URL param or localStorage after client mount
+  // (cannot be done in useReducer initializer because SSR has no window)
+  useEffect(() => {
+    const urlParam = getUrlStateParam();
+    if (urlParam) {
+      const decoded = decodeStateFromUrl(urlParam);
+      if (decoded && decoded.teams.length > 0) {
+        dispatch({ type: "LOAD", payload: decoded });
+        setHydrated(true);
+        return;
+      }
+    }
+    const saved = load();
+    if (saved) dispatch({ type: "LOAD", payload: saved });
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => { if (hydrated) save(state); }, [state, hydrated]);
   useEffect(() => {
     const initial = window.location.hash.replace("#", "") || "home";
     if (initial !== "home") setView(initial);
@@ -1832,14 +2101,16 @@ export default function App() {
     return () => window.removeEventListener("hashchange", h);
   }, []);
   useEffect(() => {
-    if (view !== "screen") return;
+    if (view !== "screen" && view !== "player") return;
     const iv = setInterval(() => { const fresh = load(); if (fresh) dispatch({ type: "LOAD", payload: fresh }); }, POLL_INTERVAL);
     return () => clearInterval(iv);
   }, [view]);
 
+  _globalTimeOffset = state.timing?.offsetMin || 0;
+
   const playerUrl = typeof window !== "undefined"
     ? state.teams.length > 0
-      ? `${window.location.origin}${window.location.pathname}?d=${encodeTeamsForUrl(state)}#player`
+      ? `${window.location.origin}${window.location.pathname}?d=${encodeStateForUrl(state)}#player`
       : `${window.location.origin}${window.location.pathname}#player`
     : "";
 
