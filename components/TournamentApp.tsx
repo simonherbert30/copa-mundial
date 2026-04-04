@@ -21,6 +21,8 @@ const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]);
 const MEN_GROUP_EARLY_MATCH_CAPS = [4, 5, 4, 5, 4];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
+/** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
+const GROUP_SCHEDULE_VERSION = 3;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
 const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
@@ -367,7 +369,7 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
       }
       if (bestIdx == null) break;
       const m = unscheduled[bestIdx];
-      const fid = nextField(fieldsUsed, maxFieldsHere);
+      const fid = nextField(fieldsUsed);
       m.slotIndex = slot;
       m.fieldId = fid;
       teamsInSlot.add(m.homeId);
@@ -420,8 +422,8 @@ function consecutiveBefore(matches, teamId, slot) {
   return count;
 }
 
-function nextField(used, maxField = NUM_FIELDS) {
-  for (let i = 1; i <= maxField; i++) if (!used.has(i)) return i;
+function nextField(used) {
+  for (let i = 1; i <= NUM_FIELDS; i++) if (!used.has(i)) return i;
   return 1;
 }
 
@@ -708,6 +710,27 @@ function clampScreenRotateSec(n) {
   return Math.min(SCREEN_ROTATE_SEC_MAX, Math.max(SCREEN_ROTATE_SEC_MIN, Math.round(x)));
 }
 
+function scheduleGroupStageMatches(teams, groups) {
+  const menGroups = groups.filter((g) => teams.find((t) => t.id === g.teamIds[0])?.competition === "men");
+  const womenGroups = groups.filter((g) => teams.find((t) => t.id === g.teamIds[0])?.competition === "women");
+  const menGroupMatches = buildGroupMatches(menGroups);
+  const womenGroupMatches = buildGroupMatches(womenGroups);
+  const menSchedOpts = {
+    matchCapAtSlot: (s) => {
+      const si = Number(s);
+      return si >= 0 && si < MEN_GROUP_EARLY_MATCH_CAPS.length ? MEN_GROUP_EARLY_MATCH_CAPS[si] : null;
+    },
+    planPenalty: "men",
+  };
+  const womenSchedOpts = {
+    matchCapAtSlot: (s) => (WOMEN_GROUP_SLOTS.has(Number(s)) ? WOMEN_MATCHES_PER_WOMEN_SLOT : null),
+    planPenalty: "women",
+  };
+  const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 200, menSchedOpts);
+  const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 200, womenSchedOpts);
+  return [...menScheduled, ...womenScheduled];
+}
+
 function sanitizeScreenView(sv) {
   const arr = Array.isArray(sv) ? [...sv] : [sv || "welcome"];
   const mapped = arr.flatMap((v) => {
@@ -734,28 +757,28 @@ function createInitialState() {
   const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 5, "grp-m-");
   const womenGroups = buildGroupsStable(teams.filter((t) => t.competition === "women"), 4, "grp-w-");
   const groups = [...menGroups, ...womenGroups];
-  const menGroupMatches = buildGroupMatches(menGroups);
-  const womenGroupMatches = buildGroupMatches(womenGroups);
-  const menSchedOpts = {
-    matchCapAtSlot: (s) => (s >= 0 && s < MEN_GROUP_EARLY_MATCH_CAPS.length ? MEN_GROUP_EARLY_MATCH_CAPS[s] : null),
-    planPenalty: "men",
-  };
-  const womenSchedOpts = {
-    matchCapAtSlot: (s) => (WOMEN_GROUP_SLOTS.has(s) ? WOMEN_MATCHES_PER_WOMEN_SLOT : null),
-    planPenalty: "women",
-  };
-  const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 120, menSchedOpts);
-  const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 120, womenSchedOpts);
-  const scheduled = [...menScheduled, ...womenScheduled];
+  const scheduled = scheduleGroupStageMatches(teams, groups);
   const base = {
-    teams, groups, matches: scheduled, screenView: ["welcome"], slotAdjustMin: {}, screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
+    teams,
+    groups,
+    matches: scheduled,
+    screenView: ["welcome"],
+    slotAdjustMin: {},
+    screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
+    groupScheduleVersion: GROUP_SCHEDULE_VERSION,
   };
   return { ...base, matches: assignReferees(base) };
 }
 
 // --- REDUCER ---
 const EMPTY_INIT = {
-  teams: buildFixedTeams(), groups: [], matches: [], screenView: ["welcome"], slotAdjustMin: {}, screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
+  teams: buildFixedTeams(),
+  groups: [],
+  matches: [],
+  screenView: ["welcome"],
+  slotAdjustMin: {},
+  screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
+  groupScheduleVersion: GROUP_SCHEDULE_VERSION,
 };
 
 function reducer(state, action) {
@@ -866,13 +889,22 @@ function reducer(state, action) {
       const pl = action.payload;
       const teams = pl.teams?.length ? pl.teams : buildFixedTeams();
       const slotAdjustMin = pl.slotAdjustMin && typeof pl.slotAdjustMin === "object" ? { ...pl.slotAdjustMin } : {};
-      return {
+      let matches = pl.matches || [];
+      if ((pl.groupScheduleVersion ?? 0) < GROUP_SCHEDULE_VERSION && pl.groups?.length) {
+        const freshGroup = scheduleGroupStageMatches(teams, pl.groups);
+        const nonGroup = matches.filter((m) => m.phase !== "group");
+        matches = [...freshGroup, ...nonGroup];
+      }
+      const merged = {
         ...pl,
         teams,
+        matches,
         slotAdjustMin,
+        groupScheduleVersion: GROUP_SCHEDULE_VERSION,
         screenView: sanitizeScreenView(pl.screenView),
         screenRotateSec: clampScreenRotateSec(pl.screenRotateSec ?? DEFAULT_SCREEN_ROTATE_SEC),
       };
+      return { ...merged, matches: assignReferees(merged) };
     }
     case "RESET":
       return createInitialState();
@@ -1642,13 +1674,9 @@ function AdminView({ state, dispatch }) {
   const isLocked = groups.length > 0;
   const allGroupsDone = isLocked && matches.filter((m) => m.phase === "group").every((m) => m.status === "completed");
 
-  const isScheduleTab = tab === "schedule-men" || tab === "schedule-women";
-  const scheduleComp = tab === "schedule-women" ? "women" : "men";
-
   const tabList = [
     { id: "teams", label: "Teams" },
-    { id: "schedule-men", label: "Schema Mannen" },
-    { id: "schedule-women", label: "Schema Vrouwen" },
+    { id: "schedule", label: "Schema" },
     { id: "standings", label: "Stand" },
     ...(hasKO ? [{ id: "knockout", label: isW ? "Finale" : "Knockout" }] : []),
     { id: "display", label: "Scherm" },
@@ -1656,25 +1684,13 @@ function AdminView({ state, dispatch }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 14 }}>
-        <Tabs
-          tabs={tabList}
-          active={tab}
-          onChange={(id) => {
-            setTab(id);
-            if (id === "schedule-men") setComp("men");
-            if (id === "schedule-women") setComp("women");
-          }}
-        />
-      </div>
-      {!isScheduleTab && (
+      <div style={{ marginBottom: 14 }}><Tabs tabs={tabList} active={tab} onChange={setTab} /></div>
       <div style={{ marginBottom: 14 }}>
         <Tabs tabs={[
           { id: "men", label: `Mannen (${state.teams.filter((t) => t.competition === "men").length})` },
           { id: "women", label: `Vrouwen (${state.teams.filter((t) => t.competition === "women").length})` },
         ]} active={comp} onChange={(c) => { setComp(c); if (c === "women" && tab === "knockout") setTab("standings"); }} />
       </div>
-      )}
 
       {tab === "teams" && (
         <Section
@@ -1722,15 +1738,15 @@ function AdminView({ state, dispatch }) {
         </Section>
       )}
 
-      {isScheduleTab && (
+      {tab === "schedule" && (
         <Section
-          title={scheduleComp === "men" ? "Schema Mannen" : "Schema Vrouwen"}
-          sub={`${scheduleComp === "men" ? "Mannen" : "Vrouwen"}wedstrijden op tijdlijn · halfuur vanaf ${slotToTime(0)} · voorrondes 1–5: 4 / 5 / 4 / 5 / 6 velden (ronde 5 = 4 man + 2 vrouw); vrouwen ook rondes 7 & 9 · ronde 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}
+          title={`Schema · ${comp === "men" ? "Mannen" : "Vrouwen"}`}
+          sub={`${comp === "men" ? "Mannen" : "Vrouwen"}wedstrijden op tijdlijn · halfuur vanaf ${slotToTime(0)} · voorrondes 1–5: 4 / 5 / 4 / 5 / 6 velden (ronde 5 = 4 man + 2 vrouw); vrouwen ook rondes 7 & 9 · ronde 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}
         >
           {(() => {
             const allM = state.matches.filter((m) => {
               const tm = state.teams.find((t) => t.id === m.homeId);
-              return tm?.competition === scheduleComp;
+              return tm?.competition === comp;
             });
             const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
             return (
@@ -1848,7 +1864,7 @@ function AdminView({ state, dispatch }) {
             )}
           </Card>
           <Card style={{ marginTop: 14, textAlign: "center" }}>
-            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave. Ronde-tijden stel je in bij <strong style={{ color: C.gold }}>Schema Mannen / Schema Vrouwen</strong>.</p>
+            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave. Ronde-tijden stel je in bij <strong style={{ color: C.gold }}>Schema</strong> (Mannen/Vrouwen hierboven).</p>
           </Card>
           <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gevaarzone</h3>
@@ -2301,7 +2317,6 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}><Logo size="sm" /><Badge color={C.live}>Admin</Badge></div>
           <div style={{ display: "flex", gap: 6 }}>
             <Btn sz="sm" v="ghost" onClick={() => (window.location.hash = "home")}>Home</Btn>
-            <Btn sz="sm" v="secondary" onClick={() => setAdminAuth(false)}>🔒 Uitloggen</Btn>
           </div>
         </div>
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: 18 }}><AdminView state={state} dispatch={dispatch} /></div>
