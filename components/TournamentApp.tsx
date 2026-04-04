@@ -1333,8 +1333,23 @@ function reducer(state, action) {
       };
       return { ...merged, matches: assignReferees(merged) };
     }
-    case "RESET":
-      return createInitialState();
+    case "RESET": {
+      const groupMatches = state.matches
+        .filter((m) => m.phase === "group")
+        .map((m) => ({
+          ...m,
+          scoreHome: null,
+          scoreAway: null,
+          penHome: null,
+          penAway: null,
+          status: "scheduled",
+          refTeamId: null,
+          refPersonName: null,
+        }));
+      const koSkel = [...buildMenKnockoutSkeleton(), ...buildWomenFinalSkeleton()];
+      const nextState = { ...state, matches: [...groupMatches, ...koSkel] };
+      return { ...nextState, matches: assignReferees(nextState) };
+    }
     case "FILL_SCORES": {
       const { phase, comp: fillComp } = action.payload;
       let newMatches = state.matches.map((m) => {
@@ -2033,7 +2048,7 @@ function ResetPanel({ dispatch }) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Btn v="danger" onClick={() => setConfirm(true)}>🗑 Volledig Herstel</Btn>
-        <span style={{ fontSize: 11, color: C.text3 }}>Verwijdert alle teams, wedstrijden en groepen</span>
+        <span style={{ fontSize: 11, color: C.text3 }}>Wist alle scores en knockout; behoudt teams, groepen en speelschema (tijden en velden)</span>
       </div>
     );
   }
