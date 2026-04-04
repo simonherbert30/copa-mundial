@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Copa Mundial — QR Poster</title>
 <style>
-  @font-face { font-family: 'Cubano'; src: url('/fonts/Cubano.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+  /* Titels: Cubano alleen als je font lokaal toevoegt; anders system fallback */
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -52,12 +52,15 @@
   .logo-img {
     height: 28mm;
     width: auto;
+    max-width: 180mm;
     object-fit: contain;
     margin-bottom: 8mm;
+    /* Bron-SVG is zwart; invert naar wit op donkere achtergrond */
+    filter: brightness(0) invert(1);
   }
 
   .event-title {
-    font-family: 'Cubano', sans-serif;
+    font-family: 'Cubano', 'Arial Black', 'Segoe UI', system-ui, sans-serif;
     font-weight: 400;
     font-size: 52pt;
     color: #fff;
@@ -99,7 +102,7 @@
   }
 
   .scan-text {
-    font-family: 'Cubano', sans-serif;
+    font-family: 'Cubano', 'Arial Black', 'Segoe UI', system-ui, sans-serif;
     font-weight: 400;
     font-size: 20pt;
     color: #fff;
@@ -143,7 +146,7 @@
     text-align: center;
   }
   .step-num {
-    font-family: 'Cubano', sans-serif;
+    font-family: 'Cubano', 'Arial Black', 'Segoe UI', system-ui, sans-serif;
     font-weight: 400;
     font-size: 18pt;
     color: #e8c465;
@@ -188,7 +191,8 @@
 <body>
 
 <div class="poster">
-  <img class="logo-img" src="/branding/Kopa Events/Logos/PNG/Logo kopa white.png" alt="Kopa Events" />
+  <!-- Relatief pad: werkt op Vercel én bij lokaal openen (file://) naast dit bestand -->
+  <img class="logo-img" id="logo-img" src="kopa-logo.svg" alt="Kopa Events" />
 
   <div class="event-title">Copa <span class="accent">Mundial</span></div>
 
@@ -207,6 +211,7 @@
   </div>
 
   <div class="url-display" id="url-display"></div>
+  <p id="qr-error" style="display:none;max-width:200mm;margin:-10mm auto 0;padding:3mm 6mm;border-radius:8px;font-size:9pt;color:#e8c465;background:rgba(232,196,101,0.12);border:1px solid rgba(232,196,101,0.35);"></p>
 
   <div class="steps">
     <div class="step">
@@ -228,18 +233,15 @@
   </div>
 
   <div class="sponsor-bar">
-    <span class="sponsor">Integra</span>
-    <span class="sponsor">Break Point</span>
-    <span class="sponsor">CAPS</span>
-    <span class="sponsor">true. food agency</span>
-    <span class="sponsor">ghilles</span>
-    <span class="sponsor">VICAR</span>
-    <span class="sponsor">Jouer.</span>
-    <span class="sponsor">BLAGEUR</span>
-    <span class="sponsor">Fourchette</span>
-    <span class="sponsor">McAlson</span>
-    <span class="sponsor">Love Stories</span>
+    <span class="sponsor">Vicar</span>
+    <span class="sponsor">CVC</span>
+    <span class="sponsor">AGO</span>
     <span class="sponsor">ByJean</span>
+    <span class="sponsor">Clavert</span>
+    <span class="sponsor">Jati Kebon</span>
+    <span class="sponsor">Monsieur Hotels</span>
+    <span class="sponsor">Nestborn</span>
+    <span class="sponsor">Caps</span>
   </div>
 
   <div class="footer">
@@ -247,28 +249,132 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js" crossorigin="anonymous"></script>
 <script>
   (function() {
-    var baseUrl = window.location.origin + window.location.pathname.replace('/qr-poster.html', '');
-    baseUrl = baseUrl.replace(/\/$/, '');
+    var CANONICAL_APP = 'https://copa-mundial.vercel.app';
 
-    var playerUrl = baseUrl + '#player';
+    function getAppRoot() {
+      var proto = window.location.protocol;
+      var origin = window.location.origin;
+      if (proto === 'file:' || !origin || origin === 'null') return CANONICAL_APP + '/';
+      return origin + '/';
+    }
+
+    var PHASES_LIST = ['group', 'R16', 'QF', 'SF', 'Final'];
+    var STATUS_LIST = ['scheduled', 'live', 'completed'];
+    var QR_DATA_URL_MAX_LENGTH = 2200;
+
+    function encodeStateForUrl(state) {
+      try {
+        var teams = state.teams || [];
+        var groups = state.groups || [];
+        var matches = state.matches || [];
+        var teamIdx = {};
+        teams.forEach(function(t, i) { teamIdx[t.id] = i; });
+        var groupIdx = {};
+        groups.forEach(function(g, i) { groupIdx[g.id] = i; });
+        var compact = {
+          t: teams.map(function(t) {
+            var row = [t.name, t.competition === 'men' ? 0 : 1];
+            (t.referees || []).forEach(function(r) { row.push(r); });
+            return row;
+          }),
+          g: groups.map(function(g) {
+            var ids = g.teamIds || [];
+            return [g.name, ids.map(function(id) { return teamIdx[id] != null ? teamIdx[id] : -1; })];
+          }),
+          m: matches.map(function(m) {
+            return [
+              teamIdx[m.homeId] != null ? teamIdx[m.homeId] : -1,
+              teamIdx[m.awayId] != null ? teamIdx[m.awayId] : -1,
+              m.groupId != null && groupIdx[m.groupId] != null ? groupIdx[m.groupId] : -1,
+              PHASES_LIST.indexOf(m.phase),
+              m.slotIndex != null ? m.slotIndex : -1,
+              m.fieldId || 0,
+              STATUS_LIST.indexOf(m.status),
+              m.scoreHome != null ? m.scoreHome : -1,
+              m.scoreAway != null ? m.scoreAway : -1,
+              m.penHome != null ? m.penHome : -1,
+              m.penAway != null ? m.penAway : -1,
+              m.refTeamId && teamIdx[m.refTeamId] != null ? teamIdx[m.refTeamId] : -1
+            ];
+          })
+        };
+        return btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function encodeTeamsForUrl(state) {
+      try {
+        var teams = state.teams || [];
+        var compact = { t: teams.map(function(t) { return [t.name, t.competition === 'men' ? 0 : 1]; }) };
+        return btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
+      } catch (e) {
+        return '';
+      }
+    }
+
+    /** Zelfde logica als de app-homepage QR: volledige staat → anders teams → anders alleen #player (harde lengte-cap). */
+    function buildPlayerUrl(state) {
+      var appRoot = getAppRoot();
+      var hash = '#player';
+      if (!state || !state.teams || !state.teams.length) {
+        return appRoot + hash;
+      }
+      var d = encodeStateForUrl(state);
+      var full = d ? appRoot + '?d=' + d + hash : appRoot + hash;
+      if (full.length <= QR_DATA_URL_MAX_LENGTH) return full;
+      var tEnc = encodeTeamsForUrl(state);
+      if (tEnc) {
+        var medium = appRoot + '?d=' + tEnc + hash;
+        if (medium.length <= QR_DATA_URL_MAX_LENGTH) return medium;
+      }
+      return appRoot + hash;
+    }
+
+    var playerUrl;
     try {
       var stored = localStorage.getItem('copa_mundial');
-      if (stored) {
-        var state = JSON.parse(stored);
-        if (state && state.teams && state.teams.length > 0) {
-          var compact = { t: state.teams.map(function(t) { return [t.name, t.competition === 'men' ? 0 : 1]; }) };
-          var encoded = btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
-          playerUrl = baseUrl + '?d=' + encoded + '#player';
-        }
-      }
-    } catch(e) {}
+      var state = stored ? JSON.parse(stored) : null;
+      playerUrl = buildPlayerUrl(state);
+    } catch (e) {
+      playerUrl = getAppRoot() + '#player';
+    }
 
-    var qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&data=' + encodeURIComponent(playerUrl);
-
-    document.getElementById('qr-img').src = qrApiUrl;
     document.getElementById('url-display').textContent = playerUrl;
+
+    var qrImg = document.getElementById('qr-img');
+    var qrErr = document.getElementById('qr-error');
+
+    function showQrError(msg) {
+      qrErr.style.display = 'block';
+      qrErr.textContent = msg;
+    }
+
+    if (typeof QRCode === 'undefined' || !QRCode.toDataURL) {
+      showQrError('QR-bibliotheek niet geladen. Controleer je internetverbinding of blokker.');
+      return;
+    }
+
+    QRCode.toDataURL(
+      playerUrl,
+      {
+        width: 560,
+        margin: 2,
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#ffffff' },
+      },
+      function (err, dataUrl) {
+        if (err) {
+          showQrError('QR genereren mislukt. Probeer opnieuw te laden of open de poster vanaf ' + CANONICAL_APP);
+          return;
+        }
+        qrImg.src = dataUrl;
+      }
+    );
   })();
 </script>
 </body>

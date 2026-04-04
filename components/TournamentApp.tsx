@@ -1,7 +1,6 @@
 // @ts-nocheck
 "use client";
 import { useState, useEffect, useLayoutEffect, useRef, useReducer, useCallback, useMemo } from "react";
-import { QRCodeSVG } from "qrcode.react";
 
 // ============================================================
 // COPA MUNDIAL — Tournament Management App
@@ -740,33 +739,9 @@ function reducer(state, action) {
 function save(s) { try { localStorage.setItem("copa_mundial", JSON.stringify(s)); } catch {} }
 function load() { try { const d = localStorage.getItem("copa_mundial"); return d ? JSON.parse(d) : null; } catch { return null; } }
 
-// --- URL STATE ENCODING (for QR cross-device sharing) ---
+// --- URL STATE DECODING (?d=… gedeelde links) ---
 const PHASES_LIST = ["group", "R16", "QF", "SF", "Final"];
 const STATUS_LIST = ["scheduled", "live", "completed"];
-
-function encodeStateForUrl(state) {
-  try {
-    const teamIdx: Record<string, number> = {};
-    state.teams.forEach((t, i) => { teamIdx[t.id] = i; });
-    const groupIdx: Record<string, number> = {};
-    state.groups.forEach((g, i) => { groupIdx[g.id] = i; });
-    const compact = {
-      t: state.teams.map((t) => [t.name, t.competition === "men" ? 0 : 1, ...(t.referees || [])]),
-      g: state.groups.map((g) => [g.name, g.teamIds.map((id) => teamIdx[id] ?? -1)]),
-      m: state.matches.map((m) => [
-        teamIdx[m.homeId] ?? -1, teamIdx[m.awayId] ?? -1,
-        groupIdx[m.groupId] ?? -1,
-        PHASES_LIST.indexOf(m.phase),
-        m.slotIndex ?? -1, m.fieldId ?? 0,
-        STATUS_LIST.indexOf(m.status),
-        m.scoreHome ?? -1, m.scoreAway ?? -1,
-        m.penHome ?? -1, m.penAway ?? -1,
-        m.refTeamId ? teamIdx[m.refTeamId] ?? -1 : -1,
-      ]),
-    };
-    return btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
-  } catch { return ""; }
-}
 
 function decodeStateFromUrl(encoded: string) {
   try {
@@ -801,42 +776,6 @@ function getUrlStateParam() {
     const params = new URLSearchParams(window.location.search);
     return params.get("d") || "";
   } catch { return ""; }
-}
-
-// Lightweight encoding for QR codes — teams only (keeps URL short enough for QR)
-function encodeTeamsForUrl(state) {
-  try {
-    const compact = { t: state.teams.map((t) => [t.name, t.competition === "men" ? 0 : 1]) };
-    return btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
-  } catch { return ""; }
-}
-
-// qrcode.react throws RangeError("Data too long") if the string exceeds ~version-40 capacity (~2900 bytes).
-const QR_DATA_URL_MAX_LENGTH = 2200;
-
-/** URL for home-page QR: never exceeds QR capacity (falls back to shorter ?d= or plain #player). */
-function buildPlayerUrlForQr(state) {
-  if (typeof window === "undefined") return { url: "", hint: null };
-  const base = `${window.location.origin}${window.location.pathname}`;
-  const hash = "#player";
-  if (!state.teams?.length) return { url: `${base}${hash}`, hint: null };
-  const d = encodeStateForUrl(state);
-  const full = d ? `${base}?d=${d}${hash}` : `${base}${hash}`;
-  if (full.length <= QR_DATA_URL_MAX_LENGTH) return { url: full, hint: null };
-  const tEnc = encodeTeamsForUrl(state);
-  if (tEnc) {
-    const medium = `${base}?d=${tEnc}${hash}`;
-    if (medium.length <= QR_DATA_URL_MAX_LENGTH) {
-      return {
-        url: medium,
-        hint: "QR bevat een verkorte staat (alleen teams). Voor volledig schema: zelfde apparaat/browser of open vanaf een kortere link.",
-      };
-    }
-  }
-  return {
-    url: `${base}${hash}`,
-    hint: "QR-link is te lang voor een code. Gebruik deze site op het toestel waar de data al staat, of herstel de staat via Admin.",
-  };
 }
 
 // ============================================================
@@ -2252,8 +2191,6 @@ export default function App() {
 
   _globalTimeOffset = state.timing?.offsetMin || 0;
 
-  const { url: playerQrUrl, hint: playerQrHint } = buildPlayerUrlForQr(state);
-
   if (view === "screen") return <ScreenView state={state} />;
 
   if (view === "admin") {
@@ -2290,21 +2227,10 @@ export default function App() {
         <Btn onClick={() => (window.location.hash = "admin")} sz="lg" v="secondary" style={{ width: "100%", justifyContent: "center" }}>🔒 Admin</Btn>
         <Btn onClick={() => (window.location.hash = "screen")} sz="lg" v="secondary" style={{ width: "100%", justifyContent: "center" }}>🖥️ Groot Scherm</Btn>
       </div>
-      <div style={{ marginTop: 24, animation: "slideUp .6s ease .3s both" }}>
-        <div style={{ display: "inline-block", padding: 16, background: "#fff", borderRadius: 16 }}>
-          {hydrated ? (
-            <QRCodeSVG value={playerQrUrl} size={220} level="L" bgColor="#ffffff" fgColor="#000000" />
-          ) : (
-            <div style={{ width: 220, height: 220, background: "#f0f0f0", borderRadius: 8 }} aria-hidden />
-          )}
-        </div>
-        <p style={{ color: C.text2, fontSize: 11, marginTop: 6 }}>Scan voor spelersweergave</p>
-        {hydrated && playerQrHint && (
-          <p style={{ color: C.orange, fontSize: 10, marginTop: 8, maxWidth: 320, lineHeight: 1.35 }}>{playerQrHint}</p>
-        )}
+      <div style={{ marginTop: 28, width: "100%" }}>
+        <SponsorBar />
+        <Footer />
       </div>
-      <SponsorBar />
-      <Footer />
     </div>
   );
 }
