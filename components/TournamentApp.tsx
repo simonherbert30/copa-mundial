@@ -1092,7 +1092,10 @@ function sanitizeScreenView(sv) {
       v === "men-poules-2" ||
       v === "women-poules"
     ) {
-      return ["poules-men-ab", "poules-men-cd-women"];
+      return ["poules-men-ab", "poules-women", "poules-men-cd"];
+    }
+    if (v === "poules-men-cd-women") {
+      return ["poules-women", "poules-men-cd"];
     }
     return [v];
   }).filter(Boolean);
@@ -2275,7 +2278,7 @@ function AdminView({ state, dispatch }) {
         return (
         <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — rotatie alleen actief als er meer dan één weergave gekozen is">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welkom" }, { id: "poules-men-ab", label: "Poules Mannen A–B" }, { id: "poules-men-cd-women", label: "Poules M C–D + Vrouwen" }, { id: "current-next-rounds", label: "Nu + volgende ronde" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "finals", label: "Finales" }].map((v) => {
+            {[{ id: "welcome", label: "Welkom" }, { id: "poules-men-ab", label: "Poules Mannen A–B" }, { id: "poules-men-cd", label: "Poules Mannen C–D" }, { id: "poules-women", label: "Poules Vrouwen" }, { id: "current-next-rounds", label: "Nu + volgende ronde" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "finals", label: "Finales" }].map((v) => {
               const isSel = selectedViews.includes(v.id);
               return (
               <Card key={v.id} onClick={() => dispatch({ type: "TOGGLE_SCREEN_VIEW", payload: v.id })}
@@ -2551,41 +2554,51 @@ function ScreenView({ state }) {
     );
   }
 
-  // ---- Mannen poules C–D + vrouwen poules ----
-  if (view === "poules-men-cd-women") {
+  // ---- Mannen poules C–D ----
+  if (view === "poules-men-cd") {
     const menCd = menGroupsSorted.slice(2, 4);
+    const sub = menCd.map((g) => g.name).join(" · ") || "—";
     return (
       <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 22 }}>
-          {womenGroupsSorted.length > 0 && (
-            <div style={{ flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.blue}30` }}>
-                <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen Poules</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
-                {womenGroupsSorted.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-              </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 36px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.orange}30`, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
+            <div>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules C–D</span>
+              <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{sub}</span>
             </div>
-          )}
-          {menCd.length > 0 && (
-            <div style={{ flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.orange}30` }}>
-                <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
-                <div>
-                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules C–D</span>
-                  <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{menCd.map((g) => g.name).join(" · ")}</span>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
-                {menCd.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-              </div>
+          </div>
+          {menCd.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
+              {menCd.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
             </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen poules C–D.</div>
           )}
-          {menCd.length === 0 && womenGroupsSorted.length === 0 && (
-            <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen poules.</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Vrouwen poules ----
+  if (view === "poules-women") {
+    return (
+      <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <SponsorLogos />
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 36px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.blue}30`, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen Poules</span>
+          </div>
+          {womenGroupsSorted.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
+              {womenGroupsSorted.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+            </div>
+          ) : (
+            <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen vrouwenpoules.</div>
           )}
         </div>
       </div>
