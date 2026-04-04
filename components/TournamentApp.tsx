@@ -1616,38 +1616,6 @@ function AdminView({ state, dispatch }) {
           <Card style={{ marginTop: 14, textAlign: "center" }}>
             <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave.</p>
           </Card>
-          {state.teams.length > 0 && (() => {
-            const shareUrl = typeof window !== "undefined"
-              ? `${window.location.origin}${window.location.pathname}?d=${encodeStateForUrl(state)}#player`
-              : "";
-            const screenUrl = typeof window !== "undefined"
-              ? `${window.location.origin}${window.location.pathname}?d=${encodeStateForUrl(state)}#screen`
-              : "";
-            return (
-              <>
-                <Card style={{ marginTop: 10 }}>
-                  <p style={{ color: C.text2, fontSize: 12, marginBottom: 8 }}>
-                    🖥️ Groot scherm op apart apparaat — kopieer deze link en open op de schermcomputer:
-                  </p>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <input readOnly value={screenUrl} style={{ flex: 1, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 6, padding: "6px 10px", color: C.text3, fontSize: 10, minWidth: 0 }} />
-                    <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(screenUrl); }}>Kopieer</Btn>
-                  </div>
-                  <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Kopieer opnieuw en herlaad op het scherm elke keer als scores worden bijgewerkt.</p>
-                </Card>
-                <Card style={{ marginTop: 10 }}>
-                  <p style={{ color: C.text2, fontSize: 12, marginBottom: 8 }}>
-                    📱 Deel met spelers/supporters — kopieer deze link en stuur via WhatsApp:
-                  </p>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <input readOnly value={shareUrl} style={{ flex: 1, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 6, padding: "6px 10px", color: C.text3, fontSize: 10, minWidth: 0 }} />
-                    <Btn sz="sm" v="secondary" onClick={() => { navigator.clipboard?.writeText(shareUrl); }}>Kopieer</Btn>
-                  </div>
-                  <p style={{ color: C.text3, fontSize: 10, marginTop: 6 }}>⚠ Kopieer de link opnieuw elke keer als scores worden bijgewerkt zodat spelers het laatste schema zien.</p>
-                </Card>
-              </>
-            );
-          })()}
           <Card style={{ marginTop: 14 }}>
             <h3 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700, color: C.gold, fontFamily: FONT_DISPLAY }}>⏱ Tijdsaanpassing</h3>
             <p style={{ fontSize: 11, color: C.text2, marginBottom: 10 }}>Als het toernooi uitloopt, verschuif de weergegeven tijden.</p>
