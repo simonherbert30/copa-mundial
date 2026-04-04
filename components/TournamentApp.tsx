@@ -15,14 +15,14 @@ const SLOT_DURATION_MIN = 30;
 // Harde regel: geen team speelt twee opeenvolgende halfuren (planning laat velden leeg indien nodig).
 // Ronde R (1-based) = standaard halfuur vanaf 11:00: slot R-1. Slot 8 = ronde 9: mannen pauzeren groepsfase, vrouwen spelen voorronde.
 const PAUSE_SLOT_INDEX = 8;
-/** Vrouwengroep: 2 matchen per ronde — nl. rondes 5, 7, 9 (slots 4, 6, 8). Ronde 5 telt 6 velden (4 man + 2 vrouw). */
+/** Vrouwengroep (4 teams): rondes 5, 7, 9 — steeds 2 duels zodat alle 4 teams spelen; slots 4, 6, 8. Ronde 5 = 4 man + 2 vrouw op het veld. */
 const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]);
 /** Mannen groepsfase: exact aantal velden per voorronde (ronde 1–5 = slot 0–4). */
 const MEN_GROUP_EARLY_MATCH_CAPS = [4, 5, 4, 5, 4];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
-const GROUP_SCHEDULE_VERSION = 3;
+const GROUP_SCHEDULE_VERSION = 4;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
 const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
@@ -174,6 +174,69 @@ function buildGroupsStable(teams, maxPerGroup, idPrefix) {
 
 function maxFieldsAtSchedulingSlot(slot) {
   return slot >= 0 && slot < FIRST_GROUP_ROUND_SLOTS ? MAX_FIELDS_FIRST_GROUP_ROUNDS : NUM_FIELDS;
+}
+
+function pairKeyIds(a, b) {
+  return a < b ? `${a}\0${b}` : `${b}\0${a}`;
+}
+
+/**
+ * Vaste indeling 4-team RR: ronde 5/7/9 = alle teams aan bod (2 gelijktijdige duels per ronde).
+ * Teamvolgorde = group.teamIds (stabiel uit poule).
+ */
+function assignWomenThreeRounds(womenMatches, existingMatches, womenGroup) {
+  const ids = womenGroup.teamIds;
+  if (ids.length !== 4) return false;
+
+  const existingBySlot = {};
+  for (const m of existingMatches) {
+    if (m.slotIndex == null) continue;
+    if (!existingBySlot[m.slotIndex]) existingBySlot[m.slotIndex] = { fields: new Set(), teams: new Set() };
+    if (m.fieldId) existingBySlot[m.slotIndex].fields.add(m.fieldId);
+    existingBySlot[m.slotIndex].teams.add(m.homeId);
+    existingBySlot[m.slotIndex].teams.add(m.awayId);
+  }
+
+  const byPair = new Map();
+  for (const m of womenMatches) {
+    if (m.groupId !== womenGroup.id || m.phase !== "group") continue;
+    byPair.set(pairKeyIds(m.homeId, m.awayId), m);
+  }
+  if (byPair.size !== 6) return false;
+
+  const [t0, t1, t2, t3] = ids;
+  const rounds = [
+    [
+      [t0, t1],
+      [t2, t3],
+    ],
+    [
+      [t0, t2],
+      [t1, t3],
+    ],
+    [
+      [t0, t3],
+      [t1, t2],
+    ],
+  ];
+  const slots = [4, 6, 8];
+
+  for (let r = 0; r < 3; r++) {
+    const slot = slots[r];
+    const ex = existingBySlot[slot] || { fields: new Set(), teams: new Set() };
+    const used = new Set(ex.fields);
+    for (const [a, b] of rounds[r]) {
+      const m = byPair.get(pairKeyIds(a, b));
+      if (!m) return false;
+      let fid = 1;
+      while (fid <= NUM_FIELDS && used.has(fid)) fid++;
+      if (fid > NUM_FIELDS) return false;
+      m.slotIndex = slot;
+      m.fieldId = fid;
+      used.add(fid);
+    }
+  }
+  return true;
 }
 
 function buildGroupMatches(groups) {
@@ -727,7 +790,14 @@ function scheduleGroupStageMatches(teams, groups) {
     planPenalty: "women",
   };
   const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 200, menSchedOpts);
-  const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 200, womenSchedOpts);
+  let womenScheduled;
+  if (womenGroups.length === 1 && womenGroups[0].teamIds.length === 4) {
+    const womenClones = cloneForScheduling(womenGroupMatches);
+    if (assignWomenThreeRounds(womenClones, menScheduled, womenGroups[0])) womenScheduled = womenClones;
+  }
+  if (!womenScheduled) {
+    womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 200, womenSchedOpts);
+  }
   return [...menScheduled, ...womenScheduled];
 }
 
@@ -1741,7 +1811,7 @@ function AdminView({ state, dispatch }) {
       {tab === "schedule" && (
         <Section
           title={`Schema · ${comp === "men" ? "Mannen" : "Vrouwen"}`}
-          sub={`${comp === "men" ? "Mannen" : "Vrouwen"}wedstrijden op tijdlijn · halfuur vanaf ${slotToTime(0)} · voorrondes 1–5: 4 / 5 / 4 / 5 / 6 velden (ronde 5 = 4 man + 2 vrouw); vrouwen ook rondes 7 & 9 · ronde 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}
+          sub={`${comp === "men" ? "Mannen" : "Vrouwen"}wedstrijden op tijdlijn · halfuur vanaf ${slotToTime(0)} · voorrondes 1–5: 4 / 5 / 4 / 5 / 6 velden (ronde 5 = 4 man + 2 vrouw) · vrouwen groep: rondes 5, 7 en 9 elk 2 duels (alle 4 teams) · ronde 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}
         >
           {(() => {
             const allM = state.matches.filter((m) => {
@@ -1784,7 +1854,7 @@ function AdminView({ state, dispatch }) {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
                   {sm.length === 0 ? (
                     <div style={{ padding: 16, textAlign: "center", color: C.text3, fontSize: 12, border: `1px dashed ${C.border}`, borderRadius: 8 }}>
-                      Geen wedstrijden gepland in deze ronde (vrouwen groep: 2 matchen per ronde 5, 7 en 9).
+                      Geen wedstrijden gepland in deze ronde (vrouwen: per ronde 5/7/9 normaal 2 duels, alle teams).
                     </div>
                   ) : (
                     sm.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)
