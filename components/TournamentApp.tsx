@@ -16,6 +16,8 @@ const SLOT_DURATION_MIN = 30;
 // Ronde R (1-based) = standaard halfuur vanaf 11:00: slot R-1. Pauzeronde 9 = slot 8.
 const PAUSE_SLOT_INDEX = 8;
 const WOMEN_GROUP_SLOTS = new Set([3, 5, 7]); // rondes 4, 6, 8
+const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
+const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
 const SLOT_ROUND_SF = 10;          // ronde 11 — SF mannen + vrouwenfinale
 const SLOT_ROUND_FINAL_MEN = 11;   // ronde 12 — mannenfinale
@@ -70,6 +72,15 @@ const SEED_MEN = [
   "Congo",
 ];
 
+const DEMO_REF_NAME_POOL = [
+  "Jan Peeters", "Tom Verstraeten", "Lucas Desmet", "Max Baeten", "Seppe Willems", "Niels Maes", "Pieter Claes", "Stijn Hendrickx",
+  "Bram Goossens", "Koen Lemmens", "Jens Coppens", "Wout Ruelens", "Arno Segers", "Dries Thijs", "Felix Noë", "Jeroen Aerts",
+  "Simon Hermans", "Vincent Fransen", "Thibo Martens", "Michiel Penders", "Sander Verbeeck", "Robin De Bruyne", "Nick Bogaerts",
+  "Tim Willekens", "Dylan Jacobs", "Lars Janssens", "Quinten Heylen", "Mathijs Geerts", "Louis Coppens", "Bas Raeymaekers",
+  "Daan Sterckx", "Finn Mertens", "Mauro Lenaerts", "Olivier Nijs", "Ruben Engels", "Victor Franckx", "Xavier Mol", "Yannick Peeters",
+  "Zeno Verdonck", "Alex Vandenbulcke", "Ben Oosterlinck", "Chris De Wilde", "Dirk Fontaine", "Eric Masschelein",
+];
+
 // --- UTILS ---
 const uid = () => Math.random().toString(36).slice(2, 11);
 const shuffle = (a) => {
@@ -81,11 +92,20 @@ const shuffle = (a) => {
   return b;
 };
 
-let _globalTimeOffset = 0;
+/** Per-ronde (slot) minuten t.o.v. basisrooster; geldt voor alle wedstrijden in die ronde. */
+let _slotAdjustMin = {};
+
+function slotAdjustExtra(slotIndex) {
+  return Number(_slotAdjustMin[slotIndex] ?? _slotAdjustMin[String(slotIndex)] ?? 0);
+}
+
+function slotStartMinutesOfDay(slotIndex) {
+  return START_HOUR * 60 + START_MIN + slotIndex * SLOT_DURATION_MIN + slotAdjustExtra(slotIndex);
+}
 
 function slotToTime(slotIndex) {
-  const d = new Date(2026, 3, 6, START_HOUR, START_MIN + _globalTimeOffset);
-  d.setMinutes(d.getMinutes() + slotIndex * SLOT_DURATION_MIN);
+  const d = new Date(2026, 3, 6, START_HOUR, START_MIN);
+  d.setMinutes(d.getMinutes() + slotIndex * SLOT_DURATION_MIN + slotAdjustExtra(slotIndex));
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -105,9 +125,12 @@ function scheduleRoundLabel(slotIndex) {
 // This covers the full 30-min block: enter 5 min before, clear 5 min after.
 function getCurrentActiveSlot() {
   const now = new Date();
-  const minutesSinceStart =
-    (now.getHours() - START_HOUR) * 60 + (now.getMinutes() - START_MIN);
-  return Math.floor((minutesSinceStart + 5) / SLOT_DURATION_MIN);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  let best = 0;
+  for (let i = 0; i < 32; i++) {
+    if (nowMin >= slotStartMinutesOfDay(i) - 5) best = i;
+  }
+  return best;
 }
 
 // --- TOURNAMENT LOGIC ---
@@ -122,6 +145,23 @@ function buildGroups(teams, maxPerGroup = 4) {
   }));
   s.forEach((t, i) => groups[i % nGroups].teamIds.push(t.id));
   return groups;
+}
+
+/** Vaste poules (geen shuffle) voor vooraf vast schema. */
+function buildGroupsStable(teams, maxPerGroup, idPrefix) {
+  const s = [...teams];
+  const nGroups = Math.ceil(s.length / maxPerGroup);
+  const groups = Array.from({ length: nGroups }, (_, i) => ({
+    id: `${idPrefix}${i}`,
+    name: `Groep ${String.fromCharCode(65 + i)}`,
+    teamIds: [],
+  }));
+  s.forEach((t, i) => groups[i % nGroups].teamIds.push(t.id));
+  return groups;
+}
+
+function maxFieldsAtSchedulingSlot(slot) {
+  return slot >= 0 && slot < FIRST_GROUP_ROUND_SLOTS ? MAX_FIELDS_FIRST_GROUP_ROUNDS : NUM_FIELDS;
 }
 
 function buildGroupMatches(groups) {
@@ -186,8 +226,25 @@ function cloneForScheduling(matches) {
   return matches.map((m) => ({ ...m, slotIndex: null, fieldId: null }));
 }
 
-// Lager score = beter: minste "twee half uren op rij"; onvolledige planning zwaar gestraft.
-function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams = [], tries = 40) {
+function countGroupRoundGapViolations(matches) {
+  const byTeam = new Map();
+  for (const m of matches) {
+    if (m.phase !== "group" || m.slotIndex === null || m.slotIndex === undefined) continue;
+    for (const tid of [m.homeId, m.awayId]) {
+      if (!byTeam.has(tid)) byTeam.set(tid, []);
+      byTeam.get(tid).push(m.slotIndex);
+    }
+  }
+  let n = 0;
+  for (const slots of byTeam.values()) {
+    slots.sort((a, b) => a - b);
+    for (let i = 1; i < slots.length; i++) if (slots[i] - slots[i - 1] < 2) n++;
+  }
+  return n;
+}
+
+// Lager score = beter: geen opeenvolgende groepsrondes per team; onvolledige planning zwaar gestraft.
+function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams = [], tries = 80) {
   let bestTrial = null;
   let bestScore = Infinity;
   for (let t = 0; t < tries; t++) {
@@ -195,8 +252,10 @@ function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams
     scheduleMatches(trial, startSlot, existingMatches, teams);
     const pending = trial.filter((m) => m.slotIndex === null).length;
     const placed = trial.filter((m) => m.slotIndex !== null);
-    const back = countTeamBackToBackSlots([...existingMatches, ...placed]);
-    const score = back * 10 + pending * 10000;
+    const combined = [...existingMatches, ...placed];
+    const back = countTeamBackToBackSlots(combined);
+    const gap = countGroupRoundGapViolations(combined);
+    const score = gap * 40 + back * 10 + pending * 10000;
     if (score < bestScore) {
       bestScore = score;
       bestTrial = trial;
@@ -234,9 +293,22 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
     return -Math.min(gh, ga);
   };
 
-  const tryPlace = (teamsInSlot, fieldsUsed, slotMatches, predicate, scoreFn) => {
+  const placePredicate = (base, m, s) => {
+    if (!groupSlotAllowed(m, s, teams)) return false;
+    if (m.phase === "group") {
+      const gapOk = (tid) => {
+        const last = lastSlotOf(base, tid);
+        if (last === null) return true;
+        return s - last >= 2;
+      };
+      return gapOk(m.homeId) && gapOk(m.awayId);
+    }
+    return noImmediateRepeat(base, m, s);
+  };
+
+  const tryPlace = (teamsInSlot, fieldsUsed, slotMatches, scoreFn, maxFieldsHere) => {
     let progress = true;
-    while (progress && fieldsUsed.size < NUM_FIELDS) {
+    while (progress && fieldsUsed.size < maxFieldsHere) {
       progress = false;
       let bestIdx = null;
       let bestSc = null;
@@ -245,7 +317,7 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
         const m = unscheduled[i];
         if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
         const baseForPred = [...scheduled, ...existingMatches, ...slotMatches];
-        if (!predicate(baseForPred, m, slot)) continue;
+        if (!placePredicate(baseForPred, m, slot)) continue;
         const sc = scoreFn(baseForPred, m, slot);
         const tie = String(m.id);
         if (
@@ -260,7 +332,7 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
       }
       if (bestIdx == null) break;
       const m = unscheduled[bestIdx];
-      const fid = nextField(fieldsUsed);
+      const fid = nextField(fieldsUsed, maxFieldsHere);
       m.slotIndex = slot;
       m.fieldId = fid;
       teamsInSlot.add(m.homeId);
@@ -282,13 +354,7 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
     const fieldsUsed = new Set(existing.fields);
     const slotMatches = [];
 
-    tryPlace(
-      teamsInSlot,
-      fieldsUsed,
-      slotMatches,
-      (base, m, s) => noImmediateRepeat(base, m, s) && groupSlotAllowed(m, s, teams),
-      idealScore,
-    );
+    tryPlace(teamsInSlot, fieldsUsed, slotMatches, idealScore, maxFieldsAtSchedulingSlot(slot));
 
     scheduled.push(...slotMatches);
     slot++;
@@ -319,8 +385,8 @@ function consecutiveBefore(matches, teamId, slot) {
   return count;
 }
 
-function nextField(used) {
-  for (let i = 1; i <= NUM_FIELDS; i++) if (!used.has(i)) return i;
+function nextField(used, maxField = NUM_FIELDS) {
+  for (let i = 1; i <= maxField; i++) if (!used.has(i)) return i;
   return 1;
 }
 
@@ -601,29 +667,36 @@ function buildFixedTeams() {
   return [...men, ...women];
 }
 
+function sanitizeScreenView(sv) {
+  const arr = Array.isArray(sv) ? [...sv] : [sv || "welcome"];
+  const mapped = arr.map((v) => {
+    if (v === "all" || v === "next-matches") return "welcome";
+    if (v === "men-groups") return "men-poules-1";
+    if (v === "women-groups") return "women-poules";
+    return v;
+  });
+  const u = [...new Set(mapped)].filter(Boolean);
+  return u.length ? u : ["welcome"];
+}
+
+function createInitialState() {
+  const teams = buildFixedTeams();
+  const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 5, "grp-m-");
+  const womenGroups = buildGroupsStable(teams.filter((t) => t.competition === "women"), 4, "grp-w-");
+  const groups = [...menGroups, ...womenGroups];
+  const groupMatches = buildGroupMatches(groups);
+  const scheduled = scheduleMatchesBest(groupMatches, 0, [], teams, 96);
+  const base = { teams, groups, matches: scheduled, screenView: ["welcome"], slotAdjustMin: {} };
+  return { ...base, matches: assignReferees(base) };
+}
+
 // --- REDUCER ---
-const INIT = { teams: buildFixedTeams(), groups: [], matches: [], screenView: ["all"], timing: { offsetMin: 0 } };
+const EMPTY_INIT = { teams: buildFixedTeams(), groups: [], matches: [], screenView: ["welcome"], slotAdjustMin: {} };
 
 function reducer(state, action) {
   switch (action.type) {
-    case "GENERATE": {
-      const comp = action.payload;
-      const compTeams = state.teams.filter((t) => t.competition === comp);
-      const otherGroups = state.groups.filter((g) => {
-        const t = state.teams.find((x) => x.id === g.teamIds[0]);
-        return t?.competition !== comp;
-      });
-      const otherMatches = state.matches.filter((m) => {
-        const t = state.teams.find((x) => x.id === m.homeId);
-        return t?.competition !== comp;
-      });
-      const maxPerGroup = comp === "women" ? compTeams.length : 5;
-      const newGroups = buildGroups(compTeams, maxPerGroup);
-      const groupMatches = buildGroupMatches(newGroups);
-      const scheduled = scheduleMatchesBest(groupMatches, 0, otherMatches, state.teams);
-      const merged = { ...state, groups: [...otherGroups, ...newGroups], matches: [...otherMatches, ...scheduled] };
-      return { ...merged, matches: assignReferees(merged) };
-    }
+    case "INIT_DEFAULT_TOURNAMENT":
+      return createInitialState();
     case "GEN_KNOCKOUT": {
       const comp = action.payload;
       const alreadyHasKO = state.matches.some((m) => {
@@ -694,23 +767,42 @@ function reducer(state, action) {
         }),
       };
     }
-    case "SET_TIMING":
-      return { ...state, timing: { ...(state.timing || {}), ...action.payload } };
+    case "SEED_DEMO_REF_NAMES": {
+      let i = 0;
+      return {
+        ...state,
+        teams: state.teams.map((t) => {
+          if (t.competition !== "men") return t;
+          const a = DEMO_REF_NAME_POOL[i++ % DEMO_REF_NAME_POOL.length];
+          const b = DEMO_REF_NAME_POOL[i++ % DEMO_REF_NAME_POOL.length];
+          return { ...t, referees: [a, b] };
+        }),
+      };
+    }
+    case "SET_SLOT_ADJUST": {
+      const { slotIndex, deltaMin } = action.payload;
+      const k = String(slotIndex);
+      const prev = state.slotAdjustMin || {};
+      const cur = Number(prev[k] ?? 0) + deltaMin;
+      const next = { ...prev, [k]: cur };
+      return { ...state, slotAdjustMin: next };
+    }
     case "SCREEN_VIEW":
-      return { ...state, screenView: action.payload };
+      return { ...state, screenView: sanitizeScreenView(action.payload) };
     case "TOGGLE_SCREEN_VIEW": {
       const cur = Array.isArray(state.screenView) ? state.screenView : [state.screenView];
       const vid = action.payload;
       const nv = cur.includes(vid) ? cur.filter((v) => v !== vid) : [...cur, vid];
-      return { ...state, screenView: nv.length === 0 ? ["all"] : nv };
+      return { ...state, screenView: sanitizeScreenView(nv.length === 0 ? ["welcome"] : nv) };
     }
     case "LOAD": {
       const pl = action.payload;
       const teams = pl.teams?.length ? pl.teams : buildFixedTeams();
-      return { ...pl, teams, timing: { offsetMin: 0, ...(pl.timing || {}) }, screenView: pl.screenView || ["all"] };
+      const slotAdjustMin = pl.slotAdjustMin && typeof pl.slotAdjustMin === "object" ? { ...pl.slotAdjustMin } : {};
+      return { ...pl, teams, slotAdjustMin, screenView: sanitizeScreenView(pl.screenView) };
     }
     case "RESET":
-      return { ...INIT };
+      return createInitialState();
     case "FILL_SCORES": {
       const { phase, comp: fillComp } = action.payload;
       let newMatches = state.matches.map((m) => {
@@ -779,7 +871,7 @@ function decodeStateFromUrl(encoded: string) {
       penAway: m[10] >= 0 ? m[10] : null,
       refTeamId: m[11] >= 0 ? String(m[11]) : null,
     }));
-    return { teams, groups, matches, screenView: "all" };
+    return { teams, groups, matches, screenView: ["welcome"], slotAdjustMin: {} };
   } catch { return null; }
 }
 
@@ -1425,7 +1517,6 @@ function AdminView({ state, dispatch }) {
   const teams = state.teams.filter((t) => t.competition === comp);
   const groups = state.groups.filter((g) => { const t = state.teams.find((x) => x.id === g.teamIds[0]); return t?.competition === comp; });
   const matches = state.matches.filter((m) => { const t = state.teams.find((x) => x.id === m.homeId); return t?.competition === comp; });
-  const maxSlot = matches.length > 0 ? Math.max(...matches.map((m) => m.slotIndex ?? 0)) : -1;
   const hasKO = matches.some((m) => m.phase !== "group");
   const groupMatchesPending = matches.some((m) => m.phase === "group" && m.status !== "completed");
   const isLocked = groups.length > 0;
@@ -1452,15 +1543,14 @@ function AdminView({ state, dispatch }) {
       {tab === "teams" && (
         <Section
           title="Teams"
-          sub={`Vaste deelnemers (${comp === "men" ? "19 mannenteams" : "4 vrouwenteams"}) · 30 min per wedstrijd · geen team in twee opeenvolgende rondes · ontbrekend team = verlies`}
+          sub={`Vaste deelnemers (${comp === "men" ? "19 mannenteams" : "4 vrouwenteams"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
         >
           {isLocked && (
             <div style={{ padding: "8px 14px", borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accent}22`, color: C.accent, fontSize: 11, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-              🔒 Toernooi gegenereerd — teamlijst is vast
+              Groepen en speelschema zijn ingesteld
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            <Btn v="secondary" disabled={isLocked} onClick={() => dispatch({ type: "GENERATE", payload: comp })}>🔄 Genereer Groepen + Schema</Btn>
             {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Genereer Knockout</Btn>}
             {isW && groups.length > 0 && !hasKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Genereer Vrouwen Finale</Btn>}
             {groups.length > 0 && (() => { const hasRefs = state.matches.some((m) => m.refTeamId); return <Btn v={hasRefs ? "ghost" : "secondary"} onClick={() => dispatch({ type: "ASSIGN_REFS" })}>{hasRefs ? "👔 Scheidsrechters Toegewezen ✓" : "👔 Wijs Scheidsrechters Toe"}</Btn>; })()}
@@ -1477,6 +1567,7 @@ function AdminView({ state, dispatch }) {
             <div style={{ marginTop: 20 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
                 <h3 style={{ fontSize: 14, ...HEAD, color: C.gold, margin: 0, fontFamily: FONT_DISPLAY }}>👔 Scheidsrechters per team</h3>
+                <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SEED_DEMO_REF_NAMES" })}>Demo: vul scheidsnamen</Btn>
               </div>
               <p style={{ fontSize: 11, color: C.text2, marginBottom: 10 }}>Geef twee scheidsrechternamen per mannenteam in. Zij fluiten ook vrouwenwedstrijden.</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
@@ -1496,16 +1587,33 @@ function AdminView({ state, dispatch }) {
       )}
 
       {tab === "schedule" && (
-        <Section title="Schema" sub={`${matches.length} wedstrijden · halfuurblokken vanaf ${slotToTime(0)} (tijd per ronde aanpasbaar) · rondes 1–8 voorrondes, 9 pauze, 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}>
-          {Array.from({ length: maxSlot + 1 }, (_, si) => {
-            const sm = matches.filter((m) => m.slotIndex === si);
+        <Section title="Schema" sub={`${state.matches.length} wedstrijden totaal · halfuurblokken vanaf ${slotToTime(0)} · pas tijd per ronde hieronder aan (geldt voor mannen én vrouwen in die ronde) · rondes 1–8 voorrondes, 9 pauze, 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}>
+          {(() => {
+            const allM = state.matches;
+            const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
+            return (
+              <>
+       {Array.from({ length: maxS + 1 }, (_, si) => {
+            const sm = allM.filter((m) => m.slotIndex === si);
             if (!sm.length) return null;
+            const adj = Number(state.slotAdjustMin?.[String(si)] ?? state.slotAdjustMin?.[si] ?? 0);
             return (
               <div key={si} style={{ marginBottom: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                   <Badge>{scheduleRoundLabel(si)}</Badge>
                   <span style={{ fontSize: 13, color: C.text2, fontWeight: 600 }}>{slotToTime(si)}</span>
                   <span style={{ fontSize: 10, color: C.text3 }}>{sm.length} wedstrijd{sm.length > 1 ? "en" : ""}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+                    <span style={{ fontSize: 10, color: C.text3 }}>Tijd ronde:</span>
+                    <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_SLOT_ADJUST", payload: { slotIndex: si, deltaMin: -5 } })}>−5</Btn>
+                    <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_SLOT_ADJUST", payload: { slotIndex: si, deltaMin: 5 } })}>+5</Btn>
+                    <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_SLOT_ADJUST", payload: { slotIndex: si, deltaMin: -15 } })}>−15</Btn>
+                    <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_SLOT_ADJUST", payload: { slotIndex: si, deltaMin: 15 } })}>+15</Btn>
+                    {adj !== 0 && (
+                      <Btn sz="sm" v="ghost" onClick={() => dispatch({ type: "SET_SLOT_ADJUST", payload: { slotIndex: si, deltaMin: -adj } })}>Reset</Btn>
+                    )}
+                    {adj !== 0 && <span style={{ fontSize: 10, color: C.orange, fontWeight: 600 }}>{adj > 0 ? "+" : ""}{adj} min</span>}
+                  </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
                   {sm.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
@@ -1513,7 +1621,10 @@ function AdminView({ state, dispatch }) {
               </div>
             );
           })}
-          {matches.length === 0 && <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Genereer eerst het toernooi.</div>}
+              </>
+            );
+          })()}
+          {state.matches.length === 0 && <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Wedstrijden laden…</div>}
         </Section>
       )}
 
@@ -1570,7 +1681,7 @@ function AdminView({ state, dispatch }) {
         return (
         <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — bij meerdere wisselen ze elke 8 seconden">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welkomstscherm" }, { id: "all", label: "Alle Wedstrijden" }, { id: "next-matches", label: "Volgende Wedstrijden" }, { id: "men-groups", label: "Mannen Groepen" }, { id: "women-groups", label: "Vrouwen Groepen" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
+            {[{ id: "welcome", label: "Welkom" }, { id: "men-poules-1", label: "Mannen Poules A–B" }, { id: "men-poules-2", label: "Mannen Poules C–D" }, { id: "women-poules", label: "Vrouwen Poules" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
               const isSel = selectedViews.includes(v.id);
               return (
               <Card key={v.id} onClick={() => dispatch({ type: "TOGGLE_SCREEN_VIEW", payload: v.id })}
@@ -1583,21 +1694,7 @@ function AdminView({ state, dispatch }) {
           </div>
           {selectedViews.length > 1 && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: C.goldBg, fontSize: 11, color: C.gold, fontWeight: 600 }}>⏱ {selectedViews.length} weergaven geselecteerd — wisselt elke 8 seconden</div>}
           <Card style={{ marginTop: 14, textAlign: "center" }}>
-            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave.</p>
-          </Card>
-          <Card style={{ marginTop: 14 }}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 13, color: C.gold, fontFamily: FONT_DISPLAY, ...HEAD }}>⏱ Tijdsaanpassing</h3>
-            <p style={{ fontSize: 11, color: C.text2, marginBottom: 10 }}>Als het toernooi uitloopt, verschuif de weergegeven tijden.</p>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) - 15 } })}>-15 min</Btn>
-              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) - 5 } })}>-5 min</Btn>
-              <span style={{ fontSize: 16, color: state.timing?.offsetMin ? C.orange : C.text, minWidth: 80, textAlign: "center", fontFamily: FONT_DISPLAY, ...HEAD }}>
-                {(state.timing?.offsetMin || 0) === 0 ? "Op schema" : `${state.timing.offsetMin > 0 ? "+" : ""}${state.timing.offsetMin} min`}
-              </span>
-              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) + 5 } })}>+5 min</Btn>
-              <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: (state.timing?.offsetMin || 0) + 15 } })}>+15 min</Btn>
-              {(state.timing?.offsetMin || 0) !== 0 && <Btn sz="sm" v="ghost" onClick={() => dispatch({ type: "SET_TIMING", payload: { offsetMin: 0 } })}>Reset</Btn>}
-            </div>
+            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave. Ronde-tijden stel je in bij het tabblad <strong style={{ color: C.gold }}>Schema</strong>.</p>
           </Card>
           <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gevaarzone</h3>
@@ -1767,7 +1864,7 @@ function WelcomeScreenDisplay() {
               </div>
               <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
                 <p style={{ color: C.live, fontSize: 36, margin: "0 0 6px", fontFamily: FONT_DISPLAY, ...HEAD }}>⚡ Eerste aftrap om 11:00</p>
-                <p style={{ color: C.text2, fontSize: 24, margin: 0 }}>8 velden · tot 8 gelijktijdige wedstrijden</p>
+                <p style={{ color: C.text2, fontSize: 24, margin: 0 }}>Eerste vier rondes: 6 velden · daarna tot 8 gelijktijdige wedstrijden</p>
               </div>
             </div>
           </div>
@@ -1782,14 +1879,6 @@ function WelcomeScreenDisplay() {
   );
 }
 
-// Helper: find the next slot index after the last match with a score entered
-function getNextMatchesSlot(matches) {
-  const scored = matches.filter((m) => m.scoreHome !== null || m.scoreAway !== null);
-  if (scored.length === 0) return matches.length > 0 ? Math.min(...matches.map((m) => m.slotIndex ?? 0)) : 0;
-  const lastScoredSlot = Math.max(...scored.map((m) => m.slotIndex ?? 0));
-  return lastScoredSlot + 1;
-}
-
 // ============================================================
 // VIEW 3: BIG SCREEN
 // ============================================================
@@ -1798,7 +1887,7 @@ function ScreenView({ state }) {
   const [viewIndex, setViewIndex] = useState(0);
   useEffect(() => { const iv = setInterval(() => setTick((t) => t + 1), POLL_INTERVAL); return () => clearInterval(iv); }, []);
 
-  const views = Array.isArray(state.screenView) ? state.screenView : [state.screenView || "all"];
+  const views = sanitizeScreenView(Array.isArray(state.screenView) ? state.screenView : [state.screenView || "welcome"]);
   useEffect(() => {
     if (views.length <= 1) return;
     const iv = setInterval(() => setViewIndex((p) => (p + 1) % views.length), 8000);
@@ -1820,164 +1909,6 @@ function ScreenView({ state }) {
       </div>
     );
   };
-
-
-  // ---- "ALL MATCHES" view — shows current active slot + next slot (fits on screen) ----
-  if (view === "all") {
-    const live = all.filter((m) => m.status === "live");
-    const scheduledSlotNums = [...new Set(all.filter((m) => m.status === "scheduled").map((m) => m.slotIndex ?? 0))].sort((a, b) => a - b);
-    const liveSlotNums = [...new Set(live.map((m) => m.slotIndex ?? 0))];
-    const activeSlot = liveSlotNums.length > 0 ? Math.min(...liveSlotNums) : (scheduledSlotNums[0] ?? -1);
-    const nextSlot = scheduledSlotNums.find((s) => s > activeSlot) ?? (activeSlot >= 0 ? -1 : -1);
-    const activeMatches = activeSlot >= 0 ? all.filter((m) => m.slotIndex === activeSlot) : [];
-    const nextMatches = nextSlot >= 0 ? all.filter((m) => m.slotIndex === nextSlot) : [];
-
-    return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
-        <style>{GLOBAL_CSS}</style>
-        <SponsorLogos />
-        <div style={{ flex: 1, overflow: "hidden", padding: "14px 36px", display: "flex", flexDirection: "column", gap: 16 }}>
-          {activeMatches.length > 0 && (
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-                <span style={{ fontSize: 38, fontWeight: 700, color: C.gold, fontFamily: FONT_DISPLAY, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  {live.length > 0 ? "Huidige Ronde" : "Nu Bezig"} — {slotToTime(activeSlot)}
-                </span>
-                <span style={{ fontSize: 24, color: C.text3 }}>{activeMatches.length} wedstrijden</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 10 }}>
-                {activeMatches.map((m) => {
-                  const home = state.teams.find((t) => t.id === m.homeId);
-                  const away = state.teams.find((t) => t.id === m.awayId);
-                  const field = FIELDS.find((f) => f.id === m.fieldId);
-                  const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
-                  const isL = m.status === "live";
-                  const isDone = m.status === "completed";
-                  return (
-                    <div key={m.id} style={{ background: isL ? `${C.live}0d` : C.card, border: `1px solid ${isL ? C.live + "50" : C.border}`, borderRadius: 12, padding: "12px 18px" }}>
-                      <div style={{ fontSize: 24, color: isL ? C.live : C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Groep" : m.phase}</div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 48, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, ...HEAD }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: isDone || isL ? 72 : 36, fontWeight: 900, color: isDone || isL ? C.white : C.text3, padding: "0 14px", fontVariantNumeric: "tabular-nums", fontFamily: FONT_DISPLAY, minWidth: 130, textAlign: "center", flexShrink: 0 }}>
-                          {isDone || isL ? `${m.scoreHome ?? 0}–${m.scoreAway ?? 0}` : "vs"}
-                        </span>
-                        <span style={{ flex: 1, fontSize: 48, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, ...HEAD }}>{away?.name || "TBD"}</span>
-                      </div>
-                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {nextMatches.length > 0 && (
-            <div style={{ flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 10 }}>
-                <span style={{ fontSize: 34, fontWeight: 700, color: C.text2, fontFamily: FONT_DISPLAY, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                  Volgende — {slotToTime(nextSlot)}
-                </span>
-                <span style={{ fontSize: 22, color: C.text3 }}>{nextMatches.length} wedstrijden</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 10 }}>
-                {nextMatches.map((m) => {
-                  const home = state.teams.find((t) => t.id === m.homeId);
-                  const away = state.teams.find((t) => t.id === m.awayId);
-                  const field = FIELDS.find((f) => f.id === m.fieldId);
-                  const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
-                  return (
-                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 18px" }}>
-                      <div style={{ fontSize: 24, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>{field?.sponsor} · {slotToTime(m.slotIndex ?? 0)} · {m.phase === "group" ? "Groep" : m.phase}</div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 44, color: C.white, fontFamily: FONT_DISPLAY, ...HEAD }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 32, fontWeight: 700, color: C.text3, padding: "0 14px", minWidth: 120, textAlign: "center", fontFamily: FONT_DISPLAY }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 44, color: C.white, fontFamily: FONT_DISPLAY, ...HEAD }}>{away?.name || "TBD"}</span>
-                      </div>
-                      {ref && <div style={{ fontSize: 18, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {all.length === 0 && <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen wedstrijden ingepland.</div>}
-        </div>
-      </div>
-    );
-  }
-
-  // ---- "NEXT MATCHES" view ----
-  if (view === "next-matches") {
-    const nextSlot = getNextMatchesSlot(all);
-    const nextSlotMatches = all.filter((m) => m.slotIndex === nextSlot);
-    const afterSlot = nextSlot + 1;
-    const afterSlotMatches = all.filter((m) => m.slotIndex === afterSlot);
-    return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
-        <style>{GLOBAL_CSS}</style>
-        <SponsorLogos />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "16px 36px", overflow: "hidden" }}>
-          <div style={{ flex: 1, minHeight: 0, marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontSize: 64, color: C.gold, ...HEAD }}>Volgende</h2>
-              {nextSlotMatches.length > 0 && <Badge color={C.gold}>{slotToTime(nextSlot)}</Badge>}
-            </div>
-            {nextSlotMatches.length > 0 ? (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))", gap: 14 }}>
-                {nextSlotMatches.map((m) => {
-                  const home = state.teams.find((t) => t.id === m.homeId);
-                  const away = state.teams.find((t) => t.id === m.awayId);
-                  const field = FIELDS.find((f) => f.id === m.fieldId);
-                  const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
-                  return (
-                    <div key={m.id} style={{ background: C.card, border: `2px solid ${C.accent}40`, borderRadius: 14, padding: "18px 24px" }}>
-                      <div style={{ fontSize: 26, color: C.gold, fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>
-                        {field?.sponsor} · {field?.name} · {m.phase === "group" ? "Groep" : m.phase}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 52, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, ...HEAD }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 40, fontWeight: 700, color: C.text3, padding: "2px 18px", fontFamily: FONT_DISPLAY, flexShrink: 0 }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 52, color: C.white, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, ...HEAD }}>{away?.name || "TBD"}</span>
-                      </div>
-                      {ref && <div style={{ fontSize: 22, color: C.text3, marginTop: 8, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{ textAlign: "center", padding: 40, color: C.text3, fontSize: 48 }}>Geen komende wedstrijden.</div>
-            )}
-          </div>
-          {afterSlotMatches.length > 0 && (
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
-                <h3 style={{ margin: 0, fontFamily: FONT_DISPLAY, fontSize: 48, color: C.text2, ...HEAD }}>Daarna</h3>
-                <Badge color={C.text2}>{slotToTime(afterSlot)}</Badge>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(440px, 1fr))", gap: 10 }}>
-                {afterSlotMatches.map((m) => {
-                  const home = state.teams.find((t) => t.id === m.homeId);
-                  const away = state.teams.find((t) => t.id === m.awayId);
-                  const field = FIELDS.find((f) => f.id === m.fieldId);
-                  const ref = m.refTeamId ? state.teams.find((t) => t.id === m.refTeamId) : null;
-                  return (
-                    <div key={m.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 20px" }}>
-                      <div style={{ fontSize: 24, color: C.text3, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>{field?.sponsor} · {field?.name}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ flex: 1, textAlign: "right", fontSize: 42, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, ...HEAD }}>{home?.name || "TBD"}</span>
-                        <span style={{ fontSize: 32, color: C.text3, padding: "0 12px", flexShrink: 0 }}>vs</span>
-                        <span style={{ flex: 1, fontSize: 42, color: C.text, fontFamily: FONT_DISPLAY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, ...HEAD }}>{away?.name || "TBD"}</span>
-                      </div>
-                      {ref && <div style={{ fontSize: 20, color: C.text3, marginTop: 6, fontWeight: 600, textAlign: "center" }}>👔 Sch: {m.refPersonName ? `${m.refPersonName} (${ref.name})` : ref.name}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   // ---- "STANDINGS" view ----
   if (view === "standings") {
@@ -2016,24 +1947,48 @@ function ScreenView({ state }) {
     );
   }
 
-  // ---- "MEN-GROUPS" / "WOMEN-GROUPS" views ----
-  if (view === "men-groups" || view === "women-groups") {
-    const compFilter = view === "men-groups" ? "men" : "women";
-    const compColor = compFilter === "men" ? C.orange : C.blue;
-    const compLabel = compFilter === "men" ? "Mannen competitie" : "Vrouwen competitie";
-    const compGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === compFilter);
-    const compMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === compFilter);
+  // ---- Mannen / vrouwen poules (mannen op twee schermen gesplitst) ----
+  if (view === "men-poules-1" || view === "men-poules-2") {
+    const menGroups = state.groups
+      .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men")
+      .sort((a, b) => a.name.localeCompare(b.name, "nl"));
+    const chunk = view === "men-poules-1" ? menGroups.slice(0, 2) : menGroups.slice(2);
+    const sub = chunk.map((g) => g.name).join(" · ") || "—";
     return (
       <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${compColor}30`, flexShrink: 0 }}>
-            <div style={{ width: 6, height: 36, background: compColor, borderRadius: 2 }} />
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: compColor, ...HEAD }}>{compLabel} — Stand</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.orange}30`, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
+            <div>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules</span>
+              <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{sub}</span>
+            </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12, overflow: "hidden" }}>
-            {compGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+            {chunk.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "women-poules") {
+    const womenGroups = state.groups
+      .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women")
+      .sort((a, b) => a.name.localeCompare(b.name, "nl"));
+    return (
+      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <SponsorLogos />
+        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.blue}30`, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen Poules</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12, overflow: "hidden" }}>
+            {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
           </div>
         </div>
       </div>
@@ -2155,7 +2110,7 @@ function LoginScreen({ onLogin }) {
 // APP
 // ============================================================
 export default function App() {
-  const [state, dispatch] = useReducer(reducer, INIT);
+  const [state, dispatch] = useReducer(reducer, EMPTY_INIT);
   const [view, setView] = useState("home");
   const [adminAuth, setAdminAuth] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -2174,8 +2129,13 @@ export default function App() {
     }
     const saved = load();
     if (saved) dispatch({ type: "LOAD", payload: saved });
+    else dispatch({ type: "INIT_DEFAULT_TOURNAMENT" });
     setHydrated(true);
   }, []);
+
+  useLayoutEffect(() => {
+    _slotAdjustMin = state.slotAdjustMin || {};
+  }, [state.slotAdjustMin]);
 
   useEffect(() => { if (hydrated) save(state); }, [state, hydrated]);
   useEffect(() => {
@@ -2190,8 +2150,6 @@ export default function App() {
     const iv = setInterval(() => { const fresh = load(); if (fresh) dispatch({ type: "LOAD", payload: fresh }); }, POLL_INTERVAL);
     return () => clearInterval(iv);
   }, [view]);
-
-  _globalTimeOffset = state.timing?.offsetMin || 0;
 
   if (view === "screen") return <ScreenView state={state} />;
 
