@@ -13,9 +13,9 @@ const RESET_PASSWORD = "kopa_reset";
 const NUM_FIELDS = 8;
 const SLOT_DURATION_MIN = 30;
 // Harde regel: geen team speelt twee opeenvolgende halfuren (planning laat velden leeg indien nodig).
-// Ronde R (1-based) = standaard halfuur vanaf 11:00: slot R-1. Pauzeronde 9 = slot 8.
+// Ronde R (1-based) = standaard halfuur vanaf 11:00: slot R-1. Slot 8 = ronde 9: mannen pauzeren groepsfase, vrouwen spelen voorronde.
 const PAUSE_SLOT_INDEX = 8;
-const WOMEN_GROUP_SLOTS = new Set([3, 5, 7]); // rondes 4, 6, 8
+const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]); // vrouwenvoorrondes rondes 5, 7, 9
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
 const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
@@ -112,7 +112,7 @@ function slotToTime(slotIndex) {
 /** Admin/schema: ronde = slot + 1 (halfuur vanaf 11:00, aanpasbaar via tijdsverschuiving). */
 function scheduleRoundLabel(slotIndex) {
   const r = slotIndex + 1;
-  if (slotIndex === PAUSE_SLOT_INDEX) return `Ronde ${r} · Pauze`;
+  if (slotIndex === PAUSE_SLOT_INDEX) return `Ronde ${r} · Mannen pauze · vrouwen voorronde`;
   if (slotIndex === SLOT_ROUND_QF) return `Ronde ${r} · Kwartfinales`;
   if (slotIndex === SLOT_ROUND_SF) return `Ronde ${r} · Halve finales · vrouwenfinale`;
   if (slotIndex === SLOT_ROUND_FINAL_MEN) return `Ronde ${r} · Mannenfinale`;
@@ -188,19 +188,12 @@ function isWomenGroupMatch(m, teams) {
   return h?.competition === "women";
 }
 
-function isMenGroupMatch(m, teams) {
-  if (m.phase !== "group") return false;
-  const h = teams.find((t) => t.id === m.homeId);
-  return h?.competition === "men";
-}
-
-/** Voorrondes: groepswedstrijd alleen op toegestane slotten; pauzeronde 9 = geen groepswedstrijden. */
+/** Voorrondes: vrouwen alleen op WOMEN_GROUP_SLOTS; mannen niet in slot 8 (ronde 9 pauze). */
 function groupSlotAllowed(m, slot, teams) {
   if (m.phase !== "group") return true;
+  if (isWomenGroupMatch(m, teams)) return WOMEN_GROUP_SLOTS.has(slot);
   if (slot === PAUSE_SLOT_INDEX) return false;
   if (slot > 7) return false;
-  if (isWomenGroupMatch(m, teams)) return WOMEN_GROUP_SLOTS.has(slot);
-  if (isMenGroupMatch(m, teams)) return true;
   return true;
 }
 
@@ -264,7 +257,7 @@ function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams
   return bestTrial.filter((m) => m.slotIndex !== null);
 }
 
-// Geen twee wedstrijden op rij per team; niet alle velden hoeven vol; pauzeslot 8 voor groepsfase.
+// Geen twee wedstrijden op rij per team; max 6 velden in eerste vier ronden; mannen geen groep in slot 8.
 function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = []) {
   const scheduled = [];
   const unscheduled = shuffle([...matches]);
@@ -345,10 +338,6 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
   };
 
   while (unscheduled.length > 0 && maxIter-- > 0) {
-    if (slot === PAUSE_SLOT_INDEX) {
-      slot++;
-      continue;
-    }
     const existing = existingBySlot[slot] || { fields: new Set(), teams: new Set() };
     const teamsInSlot = new Set(existing.teams);
     const fieldsUsed = new Set(existing.fields);
@@ -684,8 +673,11 @@ function createInitialState() {
   const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 5, "grp-m-");
   const womenGroups = buildGroupsStable(teams.filter((t) => t.competition === "women"), 4, "grp-w-");
   const groups = [...menGroups, ...womenGroups];
-  const groupMatches = buildGroupMatches(groups);
-  const scheduled = scheduleMatchesBest(groupMatches, 0, [], teams, 96);
+  const menGroupMatches = buildGroupMatches(menGroups);
+  const womenGroupMatches = buildGroupMatches(womenGroups);
+  const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 96);
+  const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 96);
+  const scheduled = [...menScheduled, ...womenScheduled];
   const base = { teams, groups, matches: scheduled, screenView: ["welcome"], slotAdjustMin: {} };
   return { ...base, matches: assignReferees(base) };
 }
@@ -1587,7 +1579,7 @@ function AdminView({ state, dispatch }) {
       )}
 
       {tab === "schedule" && (
-        <Section title="Schema" sub={`${state.matches.length} wedstrijden totaal · halfuurblokken vanaf ${slotToTime(0)} · pas tijd per ronde hieronder aan (geldt voor mannen én vrouwen in die ronde) · rondes 1–8 voorrondes, 9 pauze, 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}>
+        <Section title="Schema" sub={`${state.matches.length} wedstrijden totaal · zelfde rondes & uren voor man & vrouw · apart ingedeeld · halfuur vanaf ${slotToTime(0)} · vrouwenvoorrondes rondes 5/7/9 · ronde 9 geen mannengroep · 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}>
           {(() => {
             const allM = state.matches;
             const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
@@ -2111,6 +2103,7 @@ function LoginScreen({ onLogin }) {
 // ============================================================
 export default function App() {
   const [state, dispatch] = useReducer(reducer, EMPTY_INIT);
+  _slotAdjustMin = state.slotAdjustMin || {};
   const [view, setView] = useState("home");
   const [adminAuth, setAdminAuth] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -2132,10 +2125,6 @@ export default function App() {
     else dispatch({ type: "INIT_DEFAULT_TOURNAMENT" });
     setHydrated(true);
   }, []);
-
-  useLayoutEffect(() => {
-    _slotAdjustMin = state.slotAdjustMin || {};
-  }, [state.slotAdjustMin]);
 
   useEffect(() => { if (hydrated) save(state); }, [state, hydrated]);
   useEffect(() => {
