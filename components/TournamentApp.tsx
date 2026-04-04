@@ -1,6 +1,6 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect, useLayoutEffect, useRef, useReducer, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useReducer, useCallback, useMemo, type CSSProperties } from "react";
 
 // ============================================================
 // COPA MUNDIAL — Tournament Management App
@@ -670,8 +670,8 @@ function sanitizeScreenView(sv) {
   const arr = Array.isArray(sv) ? [...sv] : [sv || "welcome"];
   const mapped = arr.map((v) => {
     if (v === "all" || v === "next-matches") return "welcome";
-    if (v === "men-groups") return "men-poules-1";
-    if (v === "women-groups") return "women-poules";
+    if (v === "men-groups" || v === "women-groups") return "all-poules";
+    if (v === "men-poules-1" || v === "men-poules-2" || v === "women-poules") return "all-poules";
     return v;
   });
   const u = [...new Set(mapped)].filter(Boolean);
@@ -900,9 +900,15 @@ function getUrlStateParam() {
 // DESIGN SYSTEM — Kopa Events branding
 // ============================================================
 const C = {
-  bg: "#111e39",          // Kopa navy — main background
-  card: "#1a2d52",        // Lighter navy for cards
-  input: "#0d1728",       // Very dark navy for inputs
+  /** kopa-events.be :root --kopa-red */
+  bg: "#8B1E26",
+  /** Same backdrop layers as kopa-events.be body */
+  bgLayers:
+    "radial-gradient(ellipse at 30% 20%, rgba(180, 80, 60, 0.15) 0%, transparent 50%), radial-gradient(ellipse at 70% 80%, rgba(100, 20, 20, 0.2) 0%, transparent 50%), linear-gradient(180deg, #8B1E26 0%, #6B1820 100%)",
+  /** --bg-elevated */
+  card: "#7A1A22",
+  /** --kopa-red-dark */
+  input: "#6B1820",
   border: "rgba(255,255,255,0.10)",  // Subtle white border
   border2: "rgba(255,255,255,0.20)", // More visible white border
   accent: "#e11a2b",      // Kopa-events.be primary red (CTA / links)
@@ -912,7 +918,7 @@ const C = {
   goldLight: "#f0d080",
   goldBg: "rgba(232,196,101,0.18)",
   red: "#e11a2b",
-  darkRed: "#b01024",     // Secondary dark red
+  darkRed: "#6B1820",     // --kopa-red-dark
   redBg: "rgba(225,26,43,0.15)",
   blue: "#1363d6",        // Kopa blue
   green: "#3a9b3a",       // Kopa green
@@ -930,10 +936,17 @@ const FONT_BODY = "'Avenir Next LT Pro', 'Avenir Next', 'Avenir', -apple-system,
 /** Displaykoppen: iets lichter + meer letterspatiëring voor leesbaarheid */
 const HEAD = { letterSpacing: "0.045em", fontWeight: 600 };
 
+const SHELL_BG: CSSProperties = {
+  backgroundColor: C.bg,
+  backgroundImage: C.bgLayers,
+  backgroundRepeat: "no-repeat",
+  backgroundSize: "100% 100%",
+};
+
 const GLOBAL_CSS = `
 @font-face{font-family:'Cubano';src:url('/fonts/Cubano.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{background:${C.bg};color:${C.text};font-family:${FONT_BODY};-webkit-font-smoothing:antialiased}
+body{background-color:${C.bg};background-image:${C.bgLayers};background-repeat:no-repeat;background-size:100% 100%;color:${C.text};font-family:${FONT_BODY};-webkit-font-smoothing:antialiased}
 input,button,select,textarea{font-family:inherit}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.border2};border-radius:3px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -943,7 +956,7 @@ input,button,select,textarea{font-family:inherit}
 
 // Big screen (ultrabreed ±384×192 cm, beeld 2:1): vult viewport, sponsorlogos schalen mee met vh
 const BIG_SCREEN_CSS = `
-.bs-root{box-sizing:border-box;width:100dvw;max-width:100dvw;height:100dvh;max-height:100dvh;overflow:hidden;display:flex;flex-direction:column;background:${C.bg};font-family:${FONT_BODY}}
+.bs-root{box-sizing:border-box;width:100dvw;max-width:100dvw;height:100dvh;max-height:100dvh;overflow:hidden;display:flex;flex-direction:column;background-color:${C.bg};background-image:${C.bgLayers};background-repeat:no-repeat;background-size:100% 100%;font-family:${FONT_BODY}}
 .bs-main{flex:1;min-height:0;min-width:0;overflow:hidden;display:flex;flex-direction:column}
 .bs-sponsor-bar{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;padding:clamp(4px,0.65vh,12px) clamp(10px,1.2vw,36px);gap:clamp(6px,1.2vw,20px)}
 .bs-sponsor-logo{height:clamp(110px,15vh,320px);width:auto;max-width:min(46vw,640px);object-fit:contain;border-radius:8px}
@@ -1058,11 +1071,19 @@ function StatusDot({ status }) {
   return <span style={{ width: 7, height: 7, borderRadius: "50%", background: col, display: "inline-block", marginRight: 5, animation: status === "live" ? "pulse 1.5s infinite" : "none" }} />;
 }
 
-function MatchCard({ match, teams, compact, onScore, showField = true }) {
+function MatchCard({ match, teams, compact, onScore, showField = true, refereeDisplayMode = "admin" }) {
   const home = teams.find((t) => t.id === match.homeId);
   const away = teams.find((t) => t.id === match.awayId);
   const field = FIELDS.find((f) => f.id === match.fieldId);
   const ref = match.refTeamId ? teams.find((t) => t.id === match.refTeamId) : null;
+  const refLabel =
+    !ref
+      ? null
+      : refereeDisplayMode === "player"
+        ? ref.name
+        : match.refPersonName
+          ? `${match.refPersonName} (${ref.name})`
+          : ref.name;
   const isLive = match.status === "live";
   const isDone = match.status === "completed";
 
@@ -1094,7 +1115,7 @@ function MatchCard({ match, teams, compact, onScore, showField = true }) {
         </div>
         <span style={{ flex: 1, fontSize: compact ? 13 : 15, fontWeight: 700, color: C.text }}>{away?.name || "TBD"}</span>
       </div>
-      {ref && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {match.refPersonName ? `${match.refPersonName} (${ref.name})` : ref.name}</div>}
+      {refLabel != null && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {refLabel}</div>}
       {onScore && <ScoreEditor match={match} onScore={onScore} />}
     </Card>
   );
@@ -1722,7 +1743,7 @@ function AdminView({ state, dispatch }) {
         return (
         <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — rotatie alleen actief als er meer dan één weergave gekozen is">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welkom" }, { id: "men-poules-1", label: "Mannen Poules A–B" }, { id: "men-poules-2", label: "Mannen Poules C–D" }, { id: "women-poules", label: "Vrouwen Poules" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
+            {[{ id: "welcome", label: "Welkom" }, { id: "all-poules", label: "Alle poules (M+V)" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
               const isSel = selectedViews.includes(v.id);
               return (
               <Card key={v.id} onClick={() => dispatch({ type: "TOGGLE_SCREEN_VIEW", payload: v.id })}
@@ -1843,7 +1864,7 @@ function PlayerView({ state }) {
           {teamMatches.map((m) => (
             <div key={m.id}>
               <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>🕐 {slotToTime(m.slotIndex ?? 0)} · {scheduleRoundLabel(m.slotIndex ?? 0)}</div>
-              <MatchCard match={m} teams={state.teams} compact />
+              <MatchCard match={m} teams={state.teams} compact refereeDisplayMode="player" />
             </div>
           ))}
           {teamMatches.length === 0 && <div style={{ textAlign: "center", padding: 20, color: C.text3 }}>Nog geen wedstrijden.</div>}
@@ -1861,7 +1882,7 @@ function PlayerView({ state }) {
 // ============================================================
 function WelcomeScreenDisplay() {
   return (
-    <div style={{ background: C.bg, height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 48px", fontFamily: FONT_BODY }}>
+    <div style={{ ...SHELL_BG, height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 48px", fontFamily: FONT_BODY }}>
       <style>{GLOBAL_CSS}</style>
       <div style={{ maxWidth: 1400, width: "100%", textAlign: "center" }}>
         <div style={{ animation: "slideUp .6s ease", marginBottom: 20 }}>
@@ -1968,7 +1989,7 @@ function ScreenView({ state }) {
     const menGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men");
     const womenGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women");
     return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+      <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 18 }}>
@@ -2000,49 +2021,47 @@ function ScreenView({ state }) {
     );
   }
 
-  // ---- Mannen / vrouwen poules (mannen op twee schermen gesplitst) ----
-  if (view === "men-poules-1" || view === "men-poules-2") {
+  // ---- Alle poules (mannen + vrouwen) op één groot scherm ----
+  if (view === "all-poules") {
     const menGroups = state.groups
       .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men")
       .sort((a, b) => a.name.localeCompare(b.name, "nl"));
-    const chunk = view === "men-poules-1" ? menGroups.slice(0, 2) : menGroups.slice(2);
-    const sub = chunk.map((g) => g.name).join(" · ") || "—";
-    return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
-        <style>{GLOBAL_CSS}</style>
-        <SponsorLogos />
-        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.orange}30`, flexShrink: 0 }}>
-            <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
-            <div>
-              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules</span>
-              <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{sub}</span>
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12, overflow: "hidden" }}>
-            {chunk.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (view === "women-poules") {
     const womenGroups = state.groups
       .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women")
       .sort((a, b) => a.name.localeCompare(b.name, "nl"));
     return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+      <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
-        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.blue}30`, flexShrink: 0 }}>
-            <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
-            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen Poules</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12, overflow: "hidden" }}>
-            {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-          </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 22 }}>
+          {womenGroups.length > 0 && (
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.blue}30` }}>
+                <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
+                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen Poules</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
+                {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+              </div>
+            </div>
+          )}
+          {menGroups.length > 0 && (
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.orange}30` }}>
+                <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
+                <div>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules</span>
+                  <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{menGroups.map((g) => g.name).join(" · ")}</span>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
+                {menGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+              </div>
+            </div>
+          )}
+          {menGroups.length === 0 && womenGroups.length === 0 && (
+            <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen poules.</div>
+          )}
         </div>
       </div>
     );
@@ -2052,7 +2071,7 @@ function ScreenView({ state }) {
   if (view === "men-knockout") {
     const koMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase !== "group");
     return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+      <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
         <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column" }}>
@@ -2074,7 +2093,7 @@ function ScreenView({ state }) {
     const womenFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "women");
     const finalMatches = [womenFinal, menFinal].filter(Boolean);
     return (
-      <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+      <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 36px" }}>
@@ -2135,7 +2154,7 @@ function ScreenView({ state }) {
   }
 
   // fallback
-  return <div style={{ background: C.bg, color: C.text, padding: 40 }}>Onbekende weergave</div>;
+  return <div style={{ ...SHELL_BG, color: C.text, padding: 40 }}>Onbekende weergave</div>;
 }
 
 // ============================================================
@@ -2145,7 +2164,7 @@ function LoginScreen({ onLogin }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState(false);
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: C.bg, padding: 20 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", ...SHELL_BG, padding: 20 }}>
       <style>{GLOBAL_CSS}</style>
       <Card style={{ maxWidth: 320, width: "100%", textAlign: "center", padding: 28 }}>
         <Logo size="md" />
@@ -2206,7 +2225,7 @@ export default function App() {
   if (view === "admin") {
     if (!adminAuth) return <LoginScreen onLogin={() => setAdminAuth(true)} />;
     return (
-      <div style={{ background: C.bg, minHeight: "100vh", fontFamily: FONT_BODY }}>
+      <div style={{ ...SHELL_BG, minHeight: "100vh", fontFamily: FONT_BODY }}>
         <style>{GLOBAL_CSS}</style>
         <div style={{ padding: "10px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}><Logo size="sm" /><Badge color={C.live}>Admin</Badge></div>
@@ -2220,11 +2239,11 @@ export default function App() {
     );
   }
 
-  if (view === "player") return <div style={{ background: C.bg, minHeight: "100vh", fontFamily: FONT_BODY }}><style>{GLOBAL_CSS}</style><PlayerView state={state} /></div>;
+  if (view === "player") return <div style={{ ...SHELL_BG, minHeight: "100vh", fontFamily: FONT_BODY }}><style>{GLOBAL_CSS}</style><PlayerView state={state} /></div>;
 
   // HOME
   return (
-    <div style={{ background: C.bg, minHeight: "100vh", fontFamily: FONT_BODY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+    <div style={{ ...SHELL_BG, minHeight: "100vh", fontFamily: FONT_BODY, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
       <style>{GLOBAL_CSS}</style>
       <div style={{ animation: "slideUp .6s ease" }}>
         <Logo size="xl" />
