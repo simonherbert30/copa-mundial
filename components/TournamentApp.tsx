@@ -26,6 +26,9 @@ const KO_FIELD_QF = [1, 2, 3, 4]; // Monsieur Hotels, AGO, Jati Kebon, Vicar
 const KO_FIELD_SF = [3, 2];       // Jati Kebon, AGO
 const KO_FIELD_FINAL = 4;         // Vicar
 const POLL_INTERVAL = 3000;
+const DEFAULT_SCREEN_ROTATE_SEC = 8;
+const SCREEN_ROTATE_SEC_MIN = 3;
+const SCREEN_ROTATE_SEC_MAX = 120;
 const START_HOUR = 11;
 const START_MIN = 0;
 
@@ -45,6 +48,7 @@ const SPONSOR_LOGOS = [
   { name: "Jati Kebon", src: "/sponsors/jati-kebon.jpeg" },
   { name: "Monsieur Hotels", src: "/sponsors/monsieur-hotels.jpeg" },
   { name: "Nestborn", src: "/sponsors/nestborn.jpeg" },
+  { name: "Caps", src: "/sponsors/caps.jpeg" },
 ];
 const SPONSORS = SPONSOR_LOGOS.map((s) => s.name);
 
@@ -656,6 +660,12 @@ function buildFixedTeams() {
   return [...men, ...women];
 }
 
+function clampScreenRotateSec(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return DEFAULT_SCREEN_ROTATE_SEC;
+  return Math.min(SCREEN_ROTATE_SEC_MAX, Math.max(SCREEN_ROTATE_SEC_MIN, Math.round(x)));
+}
+
 function sanitizeScreenView(sv) {
   const arr = Array.isArray(sv) ? [...sv] : [sv || "welcome"];
   const mapped = arr.map((v) => {
@@ -678,12 +688,16 @@ function createInitialState() {
   const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 96);
   const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 96);
   const scheduled = [...menScheduled, ...womenScheduled];
-  const base = { teams, groups, matches: scheduled, screenView: ["welcome"], slotAdjustMin: {} };
+  const base = {
+    teams, groups, matches: scheduled, screenView: ["welcome"], slotAdjustMin: {}, screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
+  };
   return { ...base, matches: assignReferees(base) };
 }
 
 // --- REDUCER ---
-const EMPTY_INIT = { teams: buildFixedTeams(), groups: [], matches: [], screenView: ["welcome"], slotAdjustMin: {} };
+const EMPTY_INIT = {
+  teams: buildFixedTeams(), groups: [], matches: [], screenView: ["welcome"], slotAdjustMin: {}, screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
+};
 
 function reducer(state, action) {
   switch (action.type) {
@@ -787,11 +801,19 @@ function reducer(state, action) {
       const nv = cur.includes(vid) ? cur.filter((v) => v !== vid) : [...cur, vid];
       return { ...state, screenView: sanitizeScreenView(nv.length === 0 ? ["welcome"] : nv) };
     }
+    case "SET_SCREEN_ROTATE_SEC":
+      return { ...state, screenRotateSec: clampScreenRotateSec(action.payload) };
     case "LOAD": {
       const pl = action.payload;
       const teams = pl.teams?.length ? pl.teams : buildFixedTeams();
       const slotAdjustMin = pl.slotAdjustMin && typeof pl.slotAdjustMin === "object" ? { ...pl.slotAdjustMin } : {};
-      return { ...pl, teams, slotAdjustMin, screenView: sanitizeScreenView(pl.screenView) };
+      return {
+        ...pl,
+        teams,
+        slotAdjustMin,
+        screenView: sanitizeScreenView(pl.screenView),
+        screenRotateSec: clampScreenRotateSec(pl.screenRotateSec ?? DEFAULT_SCREEN_ROTATE_SEC),
+      };
     }
     case "RESET":
       return createInitialState();
@@ -863,7 +885,7 @@ function decodeStateFromUrl(encoded: string) {
       penAway: m[10] >= 0 ? m[10] : null,
       refTeamId: m[11] >= 0 ? String(m[11]) : null,
     }));
-    return { teams, groups, matches, screenView: ["welcome"], slotAdjustMin: {} };
+    return { teams, groups, matches, screenView: ["welcome"], slotAdjustMin: {}, screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC };
   } catch { return null; }
 }
 
@@ -978,8 +1000,8 @@ function Btn({ children, onClick, v = "primary", sz = "md", disabled, style: sx 
   return <button onClick={onClick} disabled={disabled} style={{ ...base, ...szs[sz], ...vs[v], ...sx }}>{children}</button>;
 }
 
-function Input({ value, onChange, placeholder, type = "text", style: sx }) {
-  return <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+function Input({ value, onChange, onBlur, onKeyDown, placeholder, type = "text", min, max, style: sx }) {
+  return <input type={type} value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)} onBlur={onBlur} onKeyDown={onKeyDown} placeholder={placeholder}
     style={{ background: C.input, border: `1px solid ${C.border2}`, borderRadius: 8, padding: "10px 14px", color: C.text, fontSize: 14, outline: "none", width: "100%", ...sx }} />;
 }
 
@@ -1498,6 +1520,32 @@ function ResetPanel({ dispatch }) {
   );
 }
 
+function ScreenRotateControl({ sec, dispatch }) {
+  const [draft, setDraft] = useState(String(sec));
+  useEffect(() => setDraft(String(sec)), [sec]);
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    dispatch({ type: "SET_SCREEN_ROTATE_SEC", payload: Number.isNaN(n) ? DEFAULT_SCREEN_ROTATE_SEC : n });
+  };
+  return (
+    <Input
+      value={draft}
+      onChange={setDraft}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      type="number"
+      min={SCREEN_ROTATE_SEC_MIN}
+      max={SCREEN_ROTATE_SEC_MAX}
+      style={{ width: 72, padding: "8px 10px" }}
+    />
+  );
+}
+
 // ============================================================
 // VIEW 1: ADMIN
 // ============================================================
@@ -1669,9 +1717,10 @@ function AdminView({ state, dispatch }) {
       )}
 
       {tab === "display" && (() => {
-        const selectedViews = Array.isArray(state.screenView) ? state.screenView : [state.screenView || "all"];
+        const selectedViews = Array.isArray(state.screenView) ? state.screenView : [state.screenView || "welcome"];
+        const rotSec = clampScreenRotateSec(state.screenRotateSec ?? DEFAULT_SCREEN_ROTATE_SEC);
         return (
-        <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — bij meerdere wisselen ze elke 8 seconden">
+        <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — rotatie alleen actief als er meer dan één weergave gekozen is">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
             {[{ id: "welcome", label: "Welkom" }, { id: "men-poules-1", label: "Mannen Poules A–B" }, { id: "men-poules-2", label: "Mannen Poules C–D" }, { id: "women-poules", label: "Vrouwen Poules" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
               const isSel = selectedViews.includes(v.id);
@@ -1684,7 +1733,18 @@ function AdminView({ state, dispatch }) {
               );
             })}
           </div>
-          {selectedViews.length > 1 && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: C.goldBg, fontSize: 11, color: C.gold, fontWeight: 600 }}>⏱ {selectedViews.length} weergaven geselecteerd — wisselt elke 8 seconden</div>}
+          <Card style={{ marginTop: 14, padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Wissel elke</span>
+              <ScreenRotateControl sec={rotSec} dispatch={dispatch} />
+              <span style={{ fontSize: 12, color: C.text2 }}>seconden (min {SCREEN_ROTATE_SEC_MIN}, max {SCREEN_ROTATE_SEC_MAX})</span>
+            </div>
+            {selectedViews.length > 1 && (
+              <div style={{ marginTop: 10, padding: "6px 12px", borderRadius: 8, background: C.goldBg, fontSize: 11, color: C.gold, fontWeight: 600 }}>
+                ⏱ {selectedViews.length} weergaven — wisselt elke {rotSec}s op het groot scherm
+              </div>
+            )}
+          </Card>
           <Card style={{ marginTop: 14, textAlign: "center" }}>
             <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave. Ronde-tijden stel je in bij het tabblad <strong style={{ color: C.gold }}>Schema</strong>.</p>
           </Card>
@@ -1880,11 +1940,12 @@ function ScreenView({ state }) {
   useEffect(() => { const iv = setInterval(() => setTick((t) => t + 1), POLL_INTERVAL); return () => clearInterval(iv); }, []);
 
   const views = sanitizeScreenView(Array.isArray(state.screenView) ? state.screenView : [state.screenView || "welcome"]);
+  const rotateMs = clampScreenRotateSec(state.screenRotateSec ?? DEFAULT_SCREEN_ROTATE_SEC) * 1000;
   useEffect(() => {
     if (views.length <= 1) return;
-    const iv = setInterval(() => setViewIndex((p) => (p + 1) % views.length), 8000);
+    const iv = setInterval(() => setViewIndex((p) => (p + 1) % views.length), rotateMs);
     return () => clearInterval(iv);
-  }, [views.length]);
+  }, [views.length, rotateMs]);
 
   const view = views[viewIndex % views.length];
   if (view === "welcome") return <WelcomeScreenDisplay />;
