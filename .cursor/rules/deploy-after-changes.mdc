@@ -1,0 +1,14 @@
+---
+description: Na code-wijzigingen altijd committen, pushen en productie-publiceren
+alwaysApply: true
+---
+
+# Commit, push en publish (copa-mundial)
+
+Wanneer je in deze repository **betekenisvolle wijzigingen** hebt gedaan (code, config die de app raakt), aan het **einde van de taak**:
+
+1. **`npm run build`** — alleen als je code hebt aangepast die de build kan breken; bij twijfel draaien.
+2. **Git**: alleen relevante bestanden stagen (geen `Credentials.txt`, wachtwoorden, of grote binaries tenzij de gebruiker dat expliciet vraagt). Commit met een **duidelijke, Engelstalige of Nederlandse** boodschap. Push naar de actuele upstream-branch (meestal `master`).
+3. **Publish**: **`npx vercel --prod`** vanuit de projectroot (zoals nu voor dit project), tenzij de gebruiker een ander deploy-kanaal vermeldt.
+
+Als er **niets te committen** is, push en deploy overslaan. Als push of Vercel faalt: zelf proberen te herstellen of kort rapporteren wat er misging.
