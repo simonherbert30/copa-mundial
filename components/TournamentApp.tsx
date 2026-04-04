@@ -22,7 +22,7 @@ const MEN_GROUP_EARLY_MATCH_CAPS = [5, 5, 5, 5, 4, 4, 4, 4];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
-const GROUP_SCHEDULE_VERSION = 9;
+const GROUP_SCHEDULE_VERSION = 10;
 /** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
 const KO_PLACEHOLDER_VERSION = 2;
 /** Vrouwenfinale ronde 12 (slot 11), mannenfinale ronde 13 (slot 12) — migratie patch. */
@@ -410,92 +410,123 @@ function maxMenGroupMatchesAtSlot(slot) {
   return NUM_FIELDS;
 }
 
+/** Harde plafonds (velden + vrouwen-slots); gebruikt om laatste ontbrekende mannen-groepsmatchen alsnog te plaatsen. */
+function maxMenGroupHardCapAtSlot(slot) {
+  const s = Number(slot);
+  if (s < 0 || s > MEN_GROUP_MAX_SLOT) return 0;
+  let cap = NUM_FIELDS;
+  if (s < FIRST_GROUP_ROUND_SLOTS) cap = Math.min(cap, MAX_FIELDS_FIRST_GROUP_ROUNDS);
+  if (WOMEN_GROUP_SLOTS.has(s)) cap = Math.min(cap, NUM_FIELDS - WOMEN_MATCHES_PER_WOMEN_SLOT);
+  return cap;
+}
+
+function menGroupCapForFillForce(slot, usePlanCaps) {
+  return usePlanCaps ? maxMenGroupMatchesAtSlot(slot) : maxMenGroupHardCapAtSlot(slot);
+}
+
 /** Vul mannen-groepsmatchen die door greedy loop op slot>7 vastliepen; gap gefaseerd 2→1→0. */
 function fillRemainingMenGroupMatches(menMatches, existingNonMen, teams) {
-  const pending = menMatches.filter(
-    (m) => isMenGroupMatch(m, teams) && (m.slotIndex === null || m.slotIndex === undefined),
-  );
-  if (!pending.length) return;
-
   const baseCombined = () => [
     ...existingNonMen,
     ...menMatches.filter((m) => m.slotIndex != null && isMenGroupMatch(m, teams)),
   ];
 
-  for (const m of pending) {
-    let done = false;
-    for (const gapNeed of [2, 1, 0]) {
-      for (let slot = 0; slot <= MEN_GROUP_MAX_SLOT && !done; slot++) {
-        if (!groupSlotAllowed(m, slot, teams)) continue;
-        const base = baseCombined().filter((x) => x.id !== m.id);
-        const gapOk = (tid) => {
-          const last = lastSlotOf(base, tid);
-          if (last === null) return true;
-          return slot - last >= gapNeed;
-        };
-        if (!gapOk(m.homeId) || !gapOk(m.awayId)) continue;
+  for (const usePlanCaps of [true, false]) {
+    for (;;) {
+      const pending = menMatches.filter(
+        (m) => isMenGroupMatch(m, teams) && (m.slotIndex === null || m.slotIndex === undefined),
+      );
+      if (!pending.length) return;
 
-        const allPlaced = baseCombined();
-        const bySlot = {};
-        for (const x of allPlaced) {
-          if (x.slotIndex == null) continue;
-          if (!bySlot[x.slotIndex]) bySlot[x.slotIndex] = { fields: new Set(), teams: new Set() };
-          if (x.fieldId) bySlot[x.slotIndex].fields.add(x.fieldId);
-          bySlot[x.slotIndex].teams.add(x.homeId);
-          bySlot[x.slotIndex].teams.add(x.awayId);
+      let placedRound = 0;
+      for (const m of pending) {
+        let done = false;
+        for (const gapNeed of [2, 1, 0]) {
+          for (let slot = 0; slot <= MEN_GROUP_MAX_SLOT && !done; slot++) {
+            if (!groupSlotAllowed(m, slot, teams)) continue;
+            const base = baseCombined().filter((x) => x.id !== m.id);
+            const gapOk = (tid) => {
+              const last = lastSlotOf(base, tid);
+              if (last === null) return true;
+              return slot - last >= gapNeed;
+            };
+            if (!gapOk(m.homeId) || !gapOk(m.awayId)) continue;
+
+            const allPlaced = baseCombined();
+            const bySlot = {};
+            for (const x of allPlaced) {
+              if (x.slotIndex == null) continue;
+              if (!bySlot[x.slotIndex]) bySlot[x.slotIndex] = { fields: new Set(), teams: new Set() };
+              if (x.fieldId) bySlot[x.slotIndex].fields.add(x.fieldId);
+              bySlot[x.slotIndex].teams.add(x.homeId);
+              bySlot[x.slotIndex].teams.add(x.awayId);
+            }
+            const ex = bySlot[slot] || { fields: new Set(), teams: new Set() };
+            if (ex.teams.has(m.homeId) || ex.teams.has(m.awayId)) continue;
+
+            const nMenHere = allPlaced.filter(
+              (x) => x.slotIndex === slot && isMenGroupMatch(x, teams),
+            ).length;
+            if (nMenHere >= menGroupCapForFillForce(slot, usePlanCaps)) continue;
+
+            const used = new Set(ex.fields);
+            m.slotIndex = slot;
+            m.fieldId = nextField(used);
+            done = true;
+            placedRound++;
+          }
+          if (done) break;
         }
-        const ex = bySlot[slot] || { fields: new Set(), teams: new Set() };
-        if (ex.teams.has(m.homeId) || ex.teams.has(m.awayId)) continue;
-
-        const nMenHere = allPlaced.filter(
-          (x) => x.slotIndex === slot && isMenGroupMatch(x, teams),
-        ).length;
-        if (nMenHere >= maxMenGroupMatchesAtSlot(slot)) continue;
-
-        const used = new Set(ex.fields);
-        m.slotIndex = slot;
-        m.fieldId = nextField(used);
-        done = true;
       }
-      if (done) break;
+      if (placedRound === 0) break;
     }
   }
 }
 
 /**
  * Laatste redmiddel: plaats nog openstaande mannen-groepsmatchen (alleen veld- en tegelijkheids-cap, geen gap-eis).
- * Nodig als scheduleMatches het slot > 7 laat oplopen zodat er geen progress meer is.
+ * Meerdere rondes + harde caps: anders konden de laatste duels vastzitten achter MEN_GROUP_EARLY_MATCH_CAPS terwijl er nog velden vrij waren.
  */
 function forcePlaceRemainingMenGroupMatches(menMatches, existingNonMen, teams) {
-  const pending = menMatches.filter(
-    (m) => isMenGroupMatch(m, teams) && (m.slotIndex === null || m.slotIndex === undefined),
-  );
-  for (const m of pending) {
-    const baseCombined = () => [
-      ...existingNonMen,
-      ...menMatches.filter((x) => x.slotIndex != null && isMenGroupMatch(x, teams)),
-    ];
-    for (let slot = 0; slot <= MEN_GROUP_MAX_SLOT; slot++) {
-      if (!groupSlotAllowed(m, slot, teams)) continue;
-      const allPlaced = baseCombined();
-      const bySlot = {};
-      for (const x of allPlaced) {
-        if (x.slotIndex == null) continue;
-        if (!bySlot[x.slotIndex]) bySlot[x.slotIndex] = { fields: new Set(), teams: new Set() };
-        if (x.fieldId) bySlot[x.slotIndex].fields.add(x.fieldId);
-        bySlot[x.slotIndex].teams.add(x.homeId);
-        bySlot[x.slotIndex].teams.add(x.awayId);
+  for (const usePlanCaps of [true, false]) {
+    for (;;) {
+      const pending = menMatches.filter(
+        (m) => isMenGroupMatch(m, teams) && (m.slotIndex === null || m.slotIndex === undefined),
+      );
+      if (!pending.length) return;
+
+      let placedRound = 0;
+      for (const m of pending) {
+        const baseCombined = () => [
+          ...existingNonMen,
+          ...menMatches.filter((x) => x.slotIndex != null && isMenGroupMatch(x, teams)),
+        ];
+        let placed = false;
+        for (let slot = 0; slot <= MEN_GROUP_MAX_SLOT && !placed; slot++) {
+          if (!groupSlotAllowed(m, slot, teams)) continue;
+          const allPlaced = baseCombined();
+          const bySlot = {};
+          for (const x of allPlaced) {
+            if (x.slotIndex == null) continue;
+            if (!bySlot[x.slotIndex]) bySlot[x.slotIndex] = { fields: new Set(), teams: new Set() };
+            if (x.fieldId) bySlot[x.slotIndex].fields.add(x.fieldId);
+            bySlot[x.slotIndex].teams.add(x.homeId);
+            bySlot[x.slotIndex].teams.add(x.awayId);
+          }
+          const ex = bySlot[slot] || { fields: new Set(), teams: new Set() };
+          if (ex.teams.has(m.homeId) || ex.teams.has(m.awayId)) continue;
+          const nMenHere = allPlaced.filter(
+            (x) => x.slotIndex === slot && isMenGroupMatch(x, teams),
+          ).length;
+          if (nMenHere >= menGroupCapForFillForce(slot, usePlanCaps)) continue;
+          const used = new Set(ex.fields);
+          m.slotIndex = slot;
+          m.fieldId = nextField(used);
+          placed = true;
+          placedRound++;
+        }
       }
-      const ex = bySlot[slot] || { fields: new Set(), teams: new Set() };
-      if (ex.teams.has(m.homeId) || ex.teams.has(m.awayId)) continue;
-      const nMenHere = allPlaced.filter(
-        (x) => x.slotIndex === slot && isMenGroupMatch(x, teams),
-      ).length;
-      if (nMenHere >= maxMenGroupMatchesAtSlot(slot)) continue;
-      const used = new Set(ex.fields);
-      m.slotIndex = slot;
-      m.fieldId = nextField(used);
-      break;
+      if (placedRound === 0) break;
     }
   }
 }
