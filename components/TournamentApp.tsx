@@ -25,6 +25,8 @@ const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 const GROUP_SCHEDULE_VERSION = 7;
 /** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
 const KO_PLACEHOLDER_VERSION = 2;
+/** Vrouwenfinale ronde 12 (slot 11), mannenfinale ronde 13 (slot 12) — migratie patch. */
+const KO_FINAL_SLOT_VERSION = 1;
 const MEN_KO_PLACEHOLDER_IDS = {
   qf: ["ko-m-qf-0", "ko-m-qf-1", "ko-m-qf-2", "ko-m-qf-3"],
   sf: ["ko-m-sf-0", "ko-m-sf-1"],
@@ -36,9 +38,9 @@ const MEN_GROUP_MAX_SLOT = 7;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
 const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
-const SLOT_ROUND_SF = 10;          // ronde 11 — SF mannen + vrouwenfinale
-const SLOT_ROUND_FINAL_MEN = 11;   // ronde 12 — mannenfinale
-const SLOT_WOMEN_FINAL = 10;       // vrouwenfinalezelfde halfuur als SF (ander veld)
+const SLOT_ROUND_SF = 10;          // ronde 11 — SF mannen
+const SLOT_WOMEN_FINAL = 11;       // ronde 12 — vrouwenfinale
+const SLOT_ROUND_FINAL_MEN = 12;   // ronde 13 — mannenfinale
 const KO_FIELD_QF = [1, 2, 3, 4]; // Monsieur Hotels, AGO, Jati Kebon, Vicar
 const KO_FIELD_SF = [3, 2];       // Jati Kebon, AGO
 const KO_FIELD_FINAL = 4;         // Vicar
@@ -132,15 +134,12 @@ function slotToTime(slotIndex) {
 }
 
 /** Korte fasenaanduiding voor schema-badge (alleen deze termen). */
-function scheduleRoundPhaseWord(slotIndex, competition) {
-  const comp = competition || "men";
+function scheduleRoundPhaseWord(slotIndex, _competition) {
   if (slotIndex < 0) return "voorrondes";
   if (slotIndex < SLOT_ROUND_QF) return "voorrondes";
   if (slotIndex === SLOT_ROUND_QF) return "kwartfinales";
-  if (slotIndex === SLOT_ROUND_SF) {
-    if (comp === "women") return "finale";
-    return "halve finales";
-  }
+  if (slotIndex === SLOT_ROUND_SF) return "halve finales";
+  if (slotIndex === SLOT_WOMEN_FINAL) return "finale";
   if (slotIndex === SLOT_ROUND_FINAL_MEN) return "finale";
   return "voorrondes";
 }
@@ -691,16 +690,19 @@ function scheduleRoundBadgeTextForSlot(slotIndex, matchesInSlot, teams) {
   const compHint = (() => {
     if (!matchesInSlot.length) return "men";
     if (slotIndex === SLOT_ROUND_SF) {
-      const hasWFin = matchesInSlot.some(
-        (m) =>
-          m.phase === "Final" &&
-          (isWomenKoMatch(m, teams) || (m.placeholder && m.placeholderComp === "women")),
-      );
-      const hasMSF = matchesInSlot.some((m) => m.phase === "SF" && isMenKoMatch(m, teams));
-      if (hasWFin && !hasMSF) return "women";
-      if (hasMSF && !hasWFin) return "men";
-      if (hasWFin && hasMSF) return "men";
+      if (matchesInSlot.some((m) => m.phase === "SF" && isMenKoMatch(m, teams))) return "men";
     }
+    if (slotIndex === SLOT_WOMEN_FINAL) {
+      if (
+        matchesInSlot.some(
+          (m) =>
+            m.phase === "Final" &&
+            (isWomenKoMatch(m, teams) || (m.placeholder && m.placeholderComp === "women")),
+        )
+      )
+        return "women";
+    }
+    if (slotIndex === SLOT_ROUND_FINAL_MEN) return "men";
     return matchScheduleComp(matchesInSlot[0], teams);
   })();
   return scheduleRoundBadgeText(slotIndex, compHint);
@@ -1109,6 +1111,7 @@ function createInitialState() {
     screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
     groupScheduleVersion: GROUP_SCHEDULE_VERSION,
     koPlaceholderVersion: KO_PLACEHOLDER_VERSION,
+    koFinalSlotVersion: KO_FINAL_SLOT_VERSION,
   };
   return { ...base, matches: assignReferees(base) };
 }
@@ -1123,6 +1126,7 @@ const EMPTY_INIT = {
   screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
   groupScheduleVersion: GROUP_SCHEDULE_VERSION,
   koPlaceholderVersion: 0,
+  koFinalSlotVersion: 0,
 };
 
 function reducer(state, action) {
@@ -1295,6 +1299,11 @@ function reducer(state, action) {
         matches = ensureMenKoSkeleton(matches, teams);
         matches = ensureWomenFinalSkeleton(matches, teams);
       }
+      if ((pl.koFinalSlotVersion ?? 0) < KO_FINAL_SLOT_VERSION) {
+        const mcopy = matches.map((m) => ({ ...m }));
+        patchKnockoutPlacement(mcopy, teams);
+        matches = mcopy;
+      }
       const merged = {
         ...pl,
         teams,
@@ -1302,6 +1311,7 @@ function reducer(state, action) {
         slotAdjustMin,
         groupScheduleVersion: GROUP_SCHEDULE_VERSION,
         koPlaceholderVersion: KO_PLACEHOLDER_VERSION,
+        koFinalSlotVersion: KO_FINAL_SLOT_VERSION,
         screenView: sanitizeScreenView(pl.screenView),
         screenRotateSec: clampScreenRotateSec(pl.screenRotateSec ?? DEFAULT_SCREEN_ROTATE_SEC),
       };
