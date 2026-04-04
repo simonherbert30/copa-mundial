@@ -23,6 +23,13 @@ const MEN_GROUP_EARLY_MATCH_CAPS = [4, 5, 4, 5, 4];
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
 const GROUP_SCHEDULE_VERSION = 6;
+/** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
+const KO_PLACEHOLDER_VERSION = 1;
+const MEN_KO_PLACEHOLDER_IDS = {
+  qf: ["ko-m-qf-0", "ko-m-qf-1", "ko-m-qf-2", "ko-m-qf-3"],
+  sf: ["ko-m-sf-0", "ko-m-sf-1"],
+  final: "ko-m-final",
+};
 /** Mannen groepsfase: alleen slot 0–7 (slot 8 = pauze). */
 const MEN_GROUP_MAX_SLOT = 7;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
@@ -657,11 +664,20 @@ function nextRoundName(current) {
   return null;
 }
 
+function isMenKoMatch(m, teams) {
+  if (m.placeholder && m.placeholderComp === "men") return true;
+  return teams.find((t) => t.id === m.homeId)?.competition === "men";
+}
+function isWomenKoMatch(m, teams) {
+  if (m.placeholder && m.placeholderComp === "women") return true;
+  return teams.find((t) => t.id === m.homeId)?.competition === "women";
+}
+
 /** QF / SF / finales op vaste velden en slotten (Copa-reglement). */
 function patchKnockoutPlacement(matches, teams) {
   const sortIds = (a, b) => String(a.id).localeCompare(String(b.id));
-  const isMen = (m) => teams.find((t) => t.id === m.homeId)?.competition === "men";
-  const isWomen = (m) => teams.find((t) => t.id === m.homeId)?.competition === "women";
+  const isMen = (m) => isMenKoMatch(m, teams);
+  const isWomen = (m) => isWomenKoMatch(m, teams);
 
   const menQF = matches.filter((m) => m.phase === "QF" && isMen(m)).sort(sortIds);
   menQF.forEach((m, i) => {
@@ -720,9 +736,89 @@ function patchKnockoutPlacement(matches, teams) {
     });
 }
 
+function buildMenKnockoutSkeleton() {
+  const rows = [];
+  for (let i = 0; i < 4; i++) {
+    rows.push({
+      id: MEN_KO_PLACEHOLDER_IDS.qf[i],
+      homeId: null,
+      awayId: null,
+      groupId: null,
+      phase: "QF",
+      scoreHome: null,
+      scoreAway: null,
+      penHome: null,
+      penAway: null,
+      slotIndex: null,
+      fieldId: null,
+      status: "scheduled",
+      refTeamId: null,
+      refPersonName: null,
+      placeholder: true,
+      placeholderComp: "men",
+    });
+  }
+  for (let i = 0; i < 2; i++) {
+    rows.push({
+      id: MEN_KO_PLACEHOLDER_IDS.sf[i],
+      homeId: null,
+      awayId: null,
+      groupId: null,
+      phase: "SF",
+      scoreHome: null,
+      scoreAway: null,
+      penHome: null,
+      penAway: null,
+      slotIndex: null,
+      fieldId: null,
+      status: "scheduled",
+      refTeamId: null,
+      refPersonName: null,
+      placeholder: true,
+      placeholderComp: "men",
+    });
+  }
+  rows.push({
+    id: MEN_KO_PLACEHOLDER_IDS.final,
+    homeId: null,
+    awayId: null,
+    groupId: null,
+    phase: "Final",
+    scoreHome: null,
+    scoreAway: null,
+    penHome: null,
+    penAway: null,
+    slotIndex: null,
+    fieldId: null,
+    status: "scheduled",
+    refTeamId: null,
+    refPersonName: null,
+    placeholder: true,
+    placeholderComp: "men",
+  });
+  patchKnockoutPlacement(rows, buildFixedTeams());
+  return rows;
+}
+
+/** Zorg dat mannen-knockoutslots in het schema staan (idempotent). */
+function ensureMenKoSkeleton(matches, teams) {
+  const hasRealMenKo = matches.some((m) => {
+    if (m.phase === "group" || m.placeholder) return false;
+    const t = teams.find((x) => x.id === m.homeId);
+    return t?.competition === "men";
+  });
+  if (hasRealMenKo) return matches;
+  if (matches.some((m) => m.id === MEN_KO_PLACEHOLDER_IDS.qf[0])) return matches;
+  return [...matches, ...buildMenKnockoutSkeleton()];
+}
+
 // Auto-generate next knockout round from completed round winners
 function generateNextRound(allMatches, completedRound, existingMatches, comp = "men", teams = []) {
-  const roundMatches = allMatches.filter((m) => m.phase === completedRound && m.status === "completed");
+  const roundMatches = allMatches.filter((m) => {
+    if (m.phase !== completedRound || m.status !== "completed") return false;
+    if (m.placeholder && m.placeholderComp === comp) return false;
+    return teams.find((t) => t.id === m.homeId)?.competition === comp;
+  });
   const winners = roundMatches.map(getMatchWinner).filter(Boolean);
   const next = nextRoundName(completedRound);
   if (!next || winners.length < 2) return [];
@@ -730,10 +826,40 @@ function generateNextRound(allMatches, completedRound, existingMatches, comp = "
   for (let i = 0; i < winners.length - 1; i += 2) {
     pairs.push([winners[i], winners[i + 1]]);
   }
+
+  const sortIds = (a, b) => String(a.id).localeCompare(String(b.id));
+  const placeholders = existingMatches
+    .filter((m) => m.phase === next && m.placeholder && m.placeholderComp === comp)
+    .sort(sortIds);
+
+  if (placeholders.length === pairs.length && pairs.length > 0) {
+    return placeholders.map((ph, i) => {
+      const u = {
+        ...ph,
+        homeId: pairs[i][0],
+        awayId: pairs[i][1],
+      };
+      delete u.placeholder;
+      delete u.placeholderComp;
+      return u;
+    });
+  }
+
   const newMatches = pairs.map(([h, a]) => ({
-    id: uid(), homeId: h, awayId: a, groupId: null, phase: next,
-    scoreHome: null, scoreAway: null, penHome: null, penAway: null,
-    slotIndex: null, fieldId: null, status: "scheduled", refTeamId: null, refPersonName: null,
+    id: uid(),
+    homeId: h,
+    awayId: a,
+    groupId: null,
+    phase: next,
+    scoreHome: null,
+    scoreAway: null,
+    penHome: null,
+    penAway: null,
+    slotIndex: null,
+    fieldId: null,
+    status: "scheduled",
+    refTeamId: null,
+    refPersonName: null,
   }));
   patchKnockoutPlacement(newMatches, teams);
   return newMatches;
@@ -764,8 +890,8 @@ function assignReferees(state) {
   state.matches.forEach((m) => {
     if (m.slotIndex === null) return;
     if (!slotTeams[m.slotIndex]) slotTeams[m.slotIndex] = new Set();
-    slotTeams[m.slotIndex].add(m.homeId);
-    slotTeams[m.slotIndex].add(m.awayId);
+    if (m.homeId) slotTeams[m.slotIndex].add(m.homeId);
+    if (m.awayId) slotTeams[m.slotIndex].add(m.awayId);
   });
 
   const allTeamIds = state.teams.map((t) => t.id);
@@ -889,20 +1015,32 @@ function sanitizeScreenView(sv) {
   return u.length ? u : ["welcome"];
 }
 
+function mergeKnockoutAdvancements(currentMatches, updates) {
+  if (!updates.length) return currentMatches;
+  const byId = new Map(currentMatches.map((m) => [m.id, m]));
+  if (updates.every((u) => byId.has(u.id))) {
+    const map = new Map(updates.map((m) => [m.id, m]));
+    return currentMatches.map((m) => map.get(m.id) || m);
+  }
+  return [...currentMatches, ...updates];
+}
+
 function createInitialState() {
   const teams = buildFixedTeams();
   const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 4, "grp-m-");
   const womenGroups = buildGroupsStable(teams.filter((t) => t.competition === "women"), 4, "grp-w-");
   const groups = [...menGroups, ...womenGroups];
   const scheduled = scheduleGroupStageMatches(teams, groups);
+  const koSkel = buildMenKnockoutSkeleton();
   const base = {
     teams,
     groups,
-    matches: scheduled,
+    matches: [...scheduled, ...koSkel],
     screenView: ["welcome"],
     slotAdjustMin: {},
     screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
     groupScheduleVersion: GROUP_SCHEDULE_VERSION,
+    koPlaceholderVersion: KO_PLACEHOLDER_VERSION,
   };
   return { ...base, matches: assignReferees(base) };
 }
@@ -916,6 +1054,7 @@ const EMPTY_INIT = {
   slotAdjustMin: {},
   screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
   groupScheduleVersion: GROUP_SCHEDULE_VERSION,
+  koPlaceholderVersion: 0,
 };
 
 function reducer(state, action) {
@@ -926,6 +1065,7 @@ function reducer(state, action) {
       const comp = action.payload;
       const alreadyHasKO = state.matches.some((m) => {
         if (m.phase === "group") return false;
+        if (m.placeholder && m.placeholderComp === comp) return false;
         const t = state.teams.find((x) => x.id === m.homeId);
         return t?.competition === comp;
       });
@@ -935,6 +1075,33 @@ function reducer(state, action) {
         return t?.competition === comp;
       });
       const ko = generateKnockout(compGroups, state.matches, state.teams, comp);
+      if (comp === "men") {
+        const sortIds = (a, b) => String(a.id).localeCompare(String(b.id));
+        const qfSkel = state.matches
+          .filter((m) => m.phase === "QF" && m.placeholder && m.placeholderComp === "men")
+          .sort(sortIds);
+        const scheduledKo = ko.map((m) => ({ ...m }));
+        patchKnockoutPlacement(scheduledKo, state.teams);
+        if (qfSkel.length === scheduledKo.length && qfSkel.length > 0) {
+          let qi = 0;
+          const newMatches = state.matches.map((m) => {
+            if (m.phase === "QF" && m.placeholder && m.placeholderComp === "men") {
+              const k = scheduledKo[qi++];
+              const u = {
+                ...m,
+                homeId: k.homeId,
+                awayId: k.awayId,
+              };
+              delete u.placeholder;
+              delete u.placeholderComp;
+              return u;
+            }
+            return m;
+          });
+          const merged = { ...state, matches: newMatches };
+          return { ...merged, matches: assignReferees(merged) };
+        }
+      }
       const scheduled = ko.map((m) => ({ ...m }));
       patchKnockoutPlacement(scheduled, state.teams);
       const merged = { ...state, matches: [...state.matches, ...scheduled] };
@@ -971,7 +1138,7 @@ function reducer(state, action) {
           });
           if (allDone && allHaveWinners && next && !nextExists) {
             const nextRoundMatches = generateNextRound(newMatches, round, newMatches, matchComp, state.teams);
-            newMatches = [...newMatches, ...nextRoundMatches];
+            newMatches = mergeKnockoutAdvancements(newMatches, nextRoundMatches);
           }
         }
       }
@@ -1032,12 +1199,16 @@ function reducer(state, action) {
         const nonGroup = matches.filter((m) => m.phase !== "group");
         matches = [...freshGroup, ...nonGroup];
       }
+      if ((pl.koPlaceholderVersion ?? 0) < KO_PLACEHOLDER_VERSION) {
+        matches = ensureMenKoSkeleton(matches, teams);
+      }
       const merged = {
         ...pl,
         teams,
         matches,
         slotAdjustMin,
         groupScheduleVersion: GROUP_SCHEDULE_VERSION,
+        koPlaceholderVersion: KO_PLACEHOLDER_VERSION,
         screenView: sanitizeScreenView(pl.screenView),
         screenRotateSec: clampScreenRotateSec(pl.screenRotateSec ?? DEFAULT_SCREEN_ROTATE_SEC),
       };
@@ -1070,7 +1241,7 @@ function reducer(state, action) {
           }).every((m) => m.status === "completed");
           if (roundComplete && !nextExists) {
             const nextRoundMatches = generateNextRound(newMatches, phase, newMatches, fillComp, state.teams);
-            newMatches = [...newMatches, ...nextRoundMatches];
+            newMatches = mergeKnockoutAdvancements(newMatches, nextRoundMatches);
           }
         }
       }
@@ -1344,7 +1515,7 @@ function MatchCard({ match, teams, compact, onScore, showField = true, refereeDi
         <span style={{ flex: 1, fontSize: compact ? 13 : 15, fontWeight: 700, color: C.text }}>{away?.name || "TBD"}</span>
       </div>
       {refLabel != null && <div style={{ fontSize: 10, color: C.text3, marginTop: 4, fontWeight: 600 }}>👔 Sch: {refLabel}</div>}
-      {onScore && <ScoreEditor match={match} onScore={onScore} />}
+      {onScore && !match.placeholder && <ScoreEditor match={match} onScore={onScore} />}
     </Card>
   );
 }
@@ -1805,8 +1976,13 @@ function AdminView({ state, dispatch }) {
 
   const teams = state.teams.filter((t) => t.competition === comp);
   const groups = state.groups.filter((g) => { const t = state.teams.find((x) => x.id === g.teamIds[0]); return t?.competition === comp; });
-  const matches = state.matches.filter((m) => { const t = state.teams.find((x) => x.id === m.homeId); return t?.competition === comp; });
+  const matches = state.matches.filter((m) => {
+    if (m.placeholder && m.placeholderComp === comp) return true;
+    const t = state.teams.find((x) => x.id === m.homeId);
+    return t?.competition === comp;
+  });
   const hasKO = matches.some((m) => m.phase !== "group");
+  const hasRealKO = matches.some((m) => m.phase !== "group" && !m.placeholder);
   const groupMatchesPending = matches.some((m) => m.phase === "group" && m.status !== "completed");
   const isLocked = groups.length > 0;
   const allGroupsDone = isLocked && matches.filter((m) => m.phase === "group").every((m) => m.status === "completed");
@@ -1840,8 +2016,8 @@ function AdminView({ state, dispatch }) {
             </div>
           )}
           <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-            {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Genereer Knockout</Btn>}
-            {isW && groups.length > 0 && !hasKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Genereer Vrouwen Finale</Btn>}
+            {!isW && groups.length > 0 && <Btn v="secondary" disabled={hasRealKO} onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })}>🏆 Genereer Knockout</Btn>}
+            {isW && groups.length > 0 && !hasRealKO && allGroupsDone && <Btn v="secondary" onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: "women" })}>🏆 Genereer Vrouwen Finale</Btn>}
             {groups.length > 0 && (() => { const hasRefs = state.matches.some((m) => m.refTeamId); return <Btn v={hasRefs ? "ghost" : "secondary"} onClick={() => dispatch({ type: "ASSIGN_REFS" })}>{hasRefs ? "👔 Scheidsrechters Toegewezen ✓" : "👔 Wijs Scheidsrechters Toe"}</Btn>; })()}
             {groupMatchesPending && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: "group", comp } })} style={{ color: C.orange }}>🎲 Vul Groepsscores in (Demo)</Btn>}
           </div>
@@ -1876,12 +2052,10 @@ function AdminView({ state, dispatch }) {
       )}
 
       {tab === "schedule" && (
-        <Section
-          title={`Schema · ${comp === "men" ? "Mannen" : "Vrouwen"}`}
-          sub={`${comp === "men" ? "Mannen" : "Vrouwen"}wedstrijden op tijdlijn · halfuur vanaf ${slotToTime(0)} · voorrondes 1–5: 4 / 5 / 4 / 5 / 6 velden (ronde 5 = 4 man + 2 vrouw) · vrouwen groep: rondes 5, 7 en 9 elk 2 duels (alle 4 teams) · ronde 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}
-        >
+        <Section title={`Schema · ${comp === "men" ? "Mannen" : "Vrouwen"}`}>
           {(() => {
             const allM = state.matches.filter((m) => {
+              if (m.placeholder && m.placeholderComp === comp) return true;
               const tm = state.teams.find((t) => t.id === m.homeId);
               return tm?.competition === comp;
             });
@@ -1948,7 +2122,7 @@ function AdminView({ state, dispatch }) {
 
       {tab === "knockout" && (
         <Section title={isW ? "Vrouwen Finale" : "Knockoutfase"} sub={isW ? "Top 2 teams uit de groepsfase" : "Volgende ronde genereert automatisch als alle wedstrijden van een ronde voltooid zijn"}>
-          {!isW && <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasKO} style={{ marginBottom: 14 }}>🏆 Genereer vanuit Stand</Btn>}
+          {!isW && <Btn onClick={() => dispatch({ type: "GEN_KNOCKOUT", payload: comp })} disabled={hasRealKO} style={{ marginBottom: 14 }}>🏆 Genereer vanuit Stand</Btn>}
           {(() => {
             const ko = matches.filter((m) => m.phase !== "group");
             if (!ko.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
@@ -1991,7 +2165,7 @@ function AdminView({ state, dispatch }) {
         return (
         <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — rotatie alleen actief als er meer dan één weergave gekozen is">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welkom" }, { id: "poules-men-ab", label: "Poules Mannen A–B" }, { id: "poules-men-cd-women", label: "Poules M C–D + Vrouwen" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "finals", label: "Finales" }].map((v) => {
+            {[{ id: "welcome", label: "Welkom" }, { id: "poules-men-ab", label: "Poules Mannen A–B" }, { id: "poules-men-cd-women", label: "Poules M C–D + Vrouwen" }, { id: "current-next-rounds", label: "Nu + volgende ronde" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "finals", label: "Finales" }].map((v) => {
               const isSel = selectedViews.includes(v.id);
               return (
               <Card key={v.id} onClick={() => dispatch({ type: "TOGGLE_SCREEN_VIEW", payload: v.id })}
@@ -2304,9 +2478,83 @@ function ScreenView({ state }) {
     );
   }
 
+  // ---- Huidige + volgende speelronde (klok) ----
+  if (view === "current-next-rounds") {
+    const cur = getCurrentActiveSlot();
+    const nextS = cur + 1;
+    const block = (slot, titleExtra) => {
+      const ms = all
+        .filter((m) => m.slotIndex === slot)
+        .sort((a, b) => (a.fieldId || 0) - (b.fieldId || 0));
+      return (
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ flexShrink: 0, marginBottom: 16, paddingBottom: 14, borderBottom: `2px solid ${C.orange}33` }}>
+            <span style={{ fontFamily: FONT_DISPLAY, fontSize: 44, color: C.gold, ...HEAD, display: "block" }}>{titleExtra}</span>
+            <span style={{ fontSize: 28, color: C.text2, fontWeight: 600 }}>{slotToTime(slot)} · {scheduleRoundLabel(slot)}</span>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+            {ms.length === 0 ? (
+              <div style={{ padding: 28, textAlign: "center", color: C.text3, fontSize: 28, border: `1px dashed ${C.border}`, borderRadius: 12 }}>
+                Geen wedstrijden in dit halfuurblok.
+              </div>
+            ) : (
+              ms.map((m) => {
+                const home = state.teams.find((t) => t.id === m.homeId);
+                const away = state.teams.find((t) => t.id === m.awayId);
+                const f = FIELDS.find((fi) => fi.id === m.fieldId);
+                const ph = m.phase === "group" ? "Groep" : m.phase;
+                return (
+                  <div
+                    key={m.id}
+                    style={{
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 14,
+                      padding: "18px 22px",
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto 1fr",
+                      gap: 16,
+                      alignItems: "center",
+                    }}
+                  >
+                    <span style={{ fontSize: 32, fontWeight: 700, color: C.white, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {home?.name || "—"}
+                    </span>
+                    <div style={{ textAlign: "center", minWidth: 100 }}>
+                      <span style={{ fontSize: 12, color: C.text3, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{ph}{f ? ` · ${f.sponsor}` : ""}</span>
+                      {m.scoreHome != null ? (
+                        <span style={{ fontSize: 40, fontWeight: 900, fontVariantNumeric: "tabular-nums", color: C.white }}>{m.scoreHome}–{m.scoreAway}</span>
+                      ) : (
+                        <span style={{ fontSize: 26, color: C.text3, fontWeight: 700 }}>vs</span>
+                      )}
+                    </div>
+                    <span style={{ fontSize: 32, fontWeight: 700, color: C.white, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {away?.name || "—"}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      );
+    };
+    return (
+      <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
+        <style>{GLOBAL_CSS}</style>
+        <SponsorLogos />
+        <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 28, padding: "20px 40px" }}>
+          {block(cur, "Nu aan de beurt")}
+          <div style={{ width: 3, flexShrink: 0, background: `${C.border2}`, borderRadius: 2, alignSelf: "stretch" }} />
+          {block(nextS, "Daarna")}
+        </div>
+      </div>
+    );
+  }
+
   // ---- "MEN-KNOCKOUT" view ----
   if (view === "men-knockout") {
-    const koMatches = all.filter((m) => state.teams.find((t) => t.id === m.homeId)?.competition === "men" && m.phase !== "group");
+    const koMatches = all.filter((m) => m.phase !== "group" && isMenKoMatch(m, state.teams));
     return (
       <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
@@ -2326,8 +2574,8 @@ function ScreenView({ state }) {
 
   // ---- "FINALS" view ----
   if (view === "finals") {
-    const menFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "men");
-    const womenFinal = all.find((m) => m.phase === "Final" && state.teams.find((t) => t.id === m.homeId)?.competition === "women");
+    const menFinal = all.find((m) => m.phase === "Final" && isMenKoMatch(m, state.teams));
+    const womenFinal = all.find((m) => m.phase === "Final" && isWomenKoMatch(m, state.teams));
     const finalMatches = [womenFinal, menFinal].filter(Boolean);
     return (
       <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
