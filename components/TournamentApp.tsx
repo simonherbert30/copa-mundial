@@ -43,12 +43,27 @@ const SPONSOR_LOGOS = [
 const SPONSORS = SPONSOR_LOGOS.map((s) => s.name);
 
 // --- SEED DATA ---
-const SEED_WOMEN = ["Brazil V", "Germany V", "France V", "Spain V"];
+const SEED_WOMEN = ["Italië", "België", "Nederland", "Peru"];
 const SEED_MEN = [
-  "Brazil", "Germany", "Argentina", "France", "Spain", "England",
-  "Portugal", "Nederland", "Italië", "België", "Kroatië", "Marokko",
-  "Japan", "Zuid-Korea", "USA", "Mexico", "Uruguay", "Colombia",
-  "Denemarken",
+  "Argentinië",
+  "België",
+  "Brazilië",
+  "Columbia",
+  "Curaçao",
+  "De Verenigde Staten",
+  "Engeland",
+  "Frankrijk",
+  "Italië",
+  "Japan",
+  "Marokko",
+  "Mexico",
+  "Portugal",
+  "Senegal",
+  "Spanje",
+  "Uruguay",
+  "Zuid-Afrika",
+  "Burkina Faso",
+  "Congo",
 ];
 
 // Demo scheidsrechters (2 per mannenteam, cyclisch)
@@ -167,8 +182,49 @@ function ensureMinMatches(existingMatches, groups, teams) {
   return extra;
 }
 
+// Aantal opeenvolgende halfuur-slots per team (bijv. slot 3 en 4 → +1 voor dat team).
+function countTeamBackToBackSlots(matches) {
+  const byTeam = new Map();
+  for (const m of matches) {
+    if (m.slotIndex === null || m.slotIndex === undefined) continue;
+    for (const tid of [m.homeId, m.awayId]) {
+      if (!byTeam.has(tid)) byTeam.set(tid, []);
+      byTeam.get(tid).push(m.slotIndex);
+    }
+  }
+  let n = 0;
+  for (const slots of byTeam.values()) {
+    slots.sort((a, b) => a - b);
+    for (let i = 1; i < slots.length; i++) if (slots[i] === slots[i - 1] + 1) n++;
+  }
+  return n;
+}
+
+function cloneForScheduling(matches) {
+  return matches.map((m) => ({ ...m, slotIndex: null, fieldId: null }));
+}
+
+// Lager score = beter: minste "twee half uren op rij"; onvolledige planning zwaar gestraft.
+function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], tries = 40) {
+  let bestTrial = null;
+  let bestScore = Infinity;
+  for (let t = 0; t < tries; t++) {
+    const trial = cloneForScheduling(matches);
+    scheduleMatches(trial, startSlot, existingMatches);
+    const pending = trial.filter((m) => m.slotIndex === null).length;
+    const placed = trial.filter((m) => m.slotIndex !== null);
+    const back = countTeamBackToBackSlots([...existingMatches, ...placed]);
+    const score = back * 10 + pending * 10000;
+    if (score < bestScore) {
+      bestScore = score;
+      bestTrial = trial;
+    }
+  }
+  return bestTrial.filter((m) => m.slotIndex !== null);
+}
+
 // existingMatches = matches from other competitions already occupying slots/fields
-// Niet alle velden hoeven gebruikt: prioriteit = geen 3×30min op rij (max 2), liefst 30 min pauze tussen matchen.
+// Niet alle velden hoeven gebruikt: voorkeur = geen twee half uren op rij; anders max 2 op rij (niet 3).
 function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
   const scheduled = [];
   const unscheduled = shuffle([...matches]);
@@ -203,27 +259,54 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
     return maxTwoOk(baseMatches, m, s);
   };
 
-  const tryPlace = (teamsInSlot, fieldsUsed, slotMatches, predicate) => {
+  /** Liever wedstrijden waar beide teams de grootste rust (slot-afstand) hebben. */
+  const idealScore = (baseMatches, m, s) => {
+    const h = lastSlotOf(baseMatches, m.homeId);
+    const a = lastSlotOf(baseMatches, m.awayId);
+    const gh = h === null ? 1000 : s - h;
+    const ga = a === null ? 1000 : s - a;
+    return -Math.min(gh, ga);
+  };
+
+  /** Bij gedwongen back-to-back: liever teams met kortste reeks net vóór dit slot. */
+  const relaxedScore = (baseMatches, m, s) =>
+    consecutiveBefore(baseMatches, m.homeId, s) + consecutiveBefore(baseMatches, m.awayId, s);
+
+  const tryPlace = (teamsInSlot, fieldsUsed, slotMatches, predicate, scoreFn) => {
     let progress = true;
-    while (progress) {
+    while (progress && fieldsUsed.size < NUM_FIELDS) {
       progress = false;
+      let bestIdx = null;
+      let bestSc = null;
+      let bestTie = null;
       for (let i = unscheduled.length - 1; i >= 0; i--) {
         const m = unscheduled[i];
         if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
-        if (fieldsUsed.size >= NUM_FIELDS) break;
         const baseForPred = [...scheduled, ...existingMatches, ...slotMatches];
         if (!predicate(baseForPred, m, slot)) continue;
-        const fid = nextField(fieldsUsed);
-        m.slotIndex = slot;
-        m.fieldId = fid;
-        teamsInSlot.add(m.homeId);
-        teamsInSlot.add(m.awayId);
-        fieldsUsed.add(fid);
-        slotMatches.push(m);
-        unscheduled.splice(i, 1);
-        progress = true;
-        break;
+        const sc = scoreFn(baseForPred, m, slot);
+        const tie = String(m.id);
+        if (
+          bestIdx == null ||
+          sc < bestSc ||
+          (sc === bestSc && tie.localeCompare(bestTie) < 0)
+        ) {
+          bestIdx = i;
+          bestSc = sc;
+          bestTie = tie;
+        }
       }
+      if (bestIdx == null) break;
+      const m = unscheduled[bestIdx];
+      const fid = nextField(fieldsUsed);
+      m.slotIndex = slot;
+      m.fieldId = fid;
+      teamsInSlot.add(m.homeId);
+      teamsInSlot.add(m.awayId);
+      fieldsUsed.add(fid);
+      slotMatches.push(m);
+      unscheduled.splice(bestIdx, 1);
+      progress = true;
     }
   };
 
@@ -233,8 +316,20 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
     const fieldsUsed = new Set(existing.fields);
     const slotMatches = [];
 
-    tryPlace(teamsInSlot, fieldsUsed, slotMatches, (base, m, s) => idealRestOk(base, m, s) && maxTwoOk(base, m, s));
-    tryPlace(teamsInSlot, fieldsUsed, slotMatches, (base, m, s) => relaxedOk(base, m, s) && !idealRestOk(base, m, s));
+    tryPlace(
+      teamsInSlot,
+      fieldsUsed,
+      slotMatches,
+      (base, m, s) => idealRestOk(base, m, s) && maxTwoOk(base, m, s),
+      idealScore,
+    );
+    tryPlace(
+      teamsInSlot,
+      fieldsUsed,
+      slotMatches,
+      (base, m, s) => relaxedOk(base, m, s) && !idealRestOk(base, m, s),
+      relaxedScore,
+    );
 
     scheduled.push(...slotMatches);
     slot++;
@@ -391,7 +486,7 @@ function generateNextRound(allMatches, completedRound, existingMatches, comp = "
     .filter((m) => m.phase === completedRound)
     .reduce((mx, m) => Math.max(mx, m.slotIndex ?? 0), 0);
   const startFrom = prevRoundMaxSlot + 2;
-  let result = scheduleMatches(newMatches, startFrom, existingMatches);
+  let result = scheduleMatchesBest(newMatches, startFrom, existingMatches);
   if (next === "Final") {
     const targetSlot = comp === "women" ? WOMEN_FINALS_SLOT : MEN_FINALS_SLOT;
     const scheduledSlot = result.length > 0 ? Math.max(...result.map((m) => m.slotIndex ?? 0)) : startFrom;
@@ -501,7 +596,7 @@ function reducer(state, action) {
       // Schedule naast andere competitie (max. NUM_FIELDS velden per slot; rust heeft voorrang)
       // Women's group matches start at WOMEN_START_SLOT (13:00)
       const startSlot = comp === "women" ? WOMEN_START_SLOT : 0;
-      const scheduled = scheduleMatches(groupMatches, startSlot, otherMatches);
+      const scheduled = scheduleMatchesBest(groupMatches, startSlot, otherMatches);
       return { ...state, groups: [...otherGroups, ...newGroups], matches: [...otherMatches, ...scheduled] };
     }
     case "GEN_KNOCKOUT": {
@@ -518,7 +613,7 @@ function reducer(state, action) {
       });
       const ko = generateKnockout(compGroups, state.matches, state.teams, comp);
       const maxSlot = state.matches.length > 0 ? Math.max(...state.matches.map((m) => m.slotIndex ?? 0)) + 2 : 0;
-      let scheduled = scheduleMatches(ko, maxSlot, state.matches);
+      let scheduled = scheduleMatchesBest(ko, maxSlot, state.matches);
       // Force Final to competition-specific finals slot, never before preceding round
       const targetFinalSlot = comp === "women" ? WOMEN_FINALS_SLOT : MEN_FINALS_SLOT;
       const sfMaxSlot = scheduled.filter((m) => m.phase !== "Final").reduce((mx, m) => Math.max(mx, m.slotIndex ?? 0), maxSlot - 2);
