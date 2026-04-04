@@ -22,7 +22,9 @@ const MEN_GROUP_EARLY_MATCH_CAPS = [4, 5, 4, 5, 4];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
-const GROUP_SCHEDULE_VERSION = 4;
+const GROUP_SCHEDULE_VERSION = 6;
+/** Mannen groepsfase: alleen slot 0–7 (slot 8 = pauze). */
+const MEN_GROUP_MAX_SLOT = 7;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
 const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
@@ -81,6 +83,7 @@ const SEED_MEN = [
   "Zuid-Afrika",
   "Burkina Faso",
   "Congo",
+  "Duitsland",
 ];
 
 const DEMO_REF_NAME_POOL = [
@@ -268,7 +271,7 @@ function groupSlotAllowed(m, slot, teams) {
   if (m.phase !== "group") return true;
   if (isWomenGroupMatch(m, teams)) return WOMEN_GROUP_SLOTS.has(slot);
   if (slot === PAUSE_SLOT_INDEX) return false;
-  if (slot > 7) return false;
+  if (slot > MEN_GROUP_MAX_SLOT) return false;
   return true;
 }
 
@@ -359,7 +362,69 @@ function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams
       bestTrial = trial;
     }
   }
-  return bestTrial.filter((m) => m.slotIndex !== null);
+  return bestTrial || [];
+}
+
+function isMenGroupMatch(m, teams) {
+  return m.phase === "group" && teams.find((t) => t.id === m.homeId)?.competition === "men";
+}
+
+function maxMenGroupMatchesAtSlot(slot) {
+  const si = Number(slot);
+  if (si >= 0 && si < MEN_GROUP_EARLY_MATCH_CAPS.length) return MEN_GROUP_EARLY_MATCH_CAPS[si];
+  return NUM_FIELDS;
+}
+
+/** Vul mannen-groepsmatchen die door greedy loop op slot>7 vastliepen; gap gefaseerd 2→1→0. */
+function fillRemainingMenGroupMatches(menMatches, existingNonMen, teams) {
+  const pending = menMatches.filter(
+    (m) => isMenGroupMatch(m, teams) && (m.slotIndex === null || m.slotIndex === undefined),
+  );
+  if (!pending.length) return;
+
+  const baseCombined = () => [
+    ...existingNonMen,
+    ...menMatches.filter((m) => m.slotIndex != null && isMenGroupMatch(m, teams)),
+  ];
+
+  for (const m of pending) {
+    let done = false;
+    for (const gapNeed of [2, 1, 0]) {
+      for (let slot = 0; slot <= MEN_GROUP_MAX_SLOT && !done; slot++) {
+        if (!groupSlotAllowed(m, slot, teams)) continue;
+        const base = baseCombined().filter((x) => x.id !== m.id);
+        const gapOk = (tid) => {
+          const last = lastSlotOf(base, tid);
+          if (last === null) return true;
+          return slot - last >= gapNeed;
+        };
+        if (!gapOk(m.homeId) || !gapOk(m.awayId)) continue;
+
+        const allPlaced = baseCombined();
+        const bySlot = {};
+        for (const x of allPlaced) {
+          if (x.slotIndex == null) continue;
+          if (!bySlot[x.slotIndex]) bySlot[x.slotIndex] = { fields: new Set(), teams: new Set() };
+          if (x.fieldId) bySlot[x.slotIndex].fields.add(x.fieldId);
+          bySlot[x.slotIndex].teams.add(x.homeId);
+          bySlot[x.slotIndex].teams.add(x.awayId);
+        }
+        const ex = bySlot[slot] || { fields: new Set(), teams: new Set() };
+        if (ex.teams.has(m.homeId) || ex.teams.has(m.awayId)) continue;
+
+        const nMenHere = allPlaced.filter(
+          (x) => x.slotIndex === slot && isMenGroupMatch(x, teams),
+        ).length;
+        if (nMenHere >= maxMenGroupMatchesAtSlot(slot)) continue;
+
+        const used = new Set(ex.fields);
+        m.slotIndex = slot;
+        m.fieldId = nextField(used);
+        done = true;
+      }
+      if (done) break;
+    }
+  }
 }
 
 // Geen twee wedstrijden op rij per team; max 6 velden in eerste vier ronden; mannen geen groep in slot 8.
@@ -789,16 +854,18 @@ function scheduleGroupStageMatches(teams, groups) {
     matchCapAtSlot: (s) => (WOMEN_GROUP_SLOTS.has(Number(s)) ? WOMEN_MATCHES_PER_WOMEN_SLOT : null),
     planPenalty: "women",
   };
-  const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 200, menSchedOpts);
+  const menTrial = scheduleMatchesBest(menGroupMatches, 0, [], teams, 400, menSchedOpts);
+  fillRemainingMenGroupMatches(menTrial, [], teams);
+  const menWithSlots = menTrial.filter((m) => m.slotIndex != null);
   let womenScheduled;
   if (womenGroups.length === 1 && womenGroups[0].teamIds.length === 4) {
     const womenClones = cloneForScheduling(womenGroupMatches);
-    if (assignWomenThreeRounds(womenClones, menScheduled, womenGroups[0])) womenScheduled = womenClones;
+    if (assignWomenThreeRounds(womenClones, menWithSlots, womenGroups[0])) womenScheduled = womenClones;
   }
   if (!womenScheduled) {
-    womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 200, womenSchedOpts);
+    womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menWithSlots, teams, 200, womenSchedOpts);
   }
-  return [...menScheduled, ...womenScheduled];
+  return [...menTrial, ...womenScheduled];
 }
 
 function sanitizeScreenView(sv) {
@@ -824,7 +891,7 @@ function sanitizeScreenView(sv) {
 
 function createInitialState() {
   const teams = buildFixedTeams();
-  const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 5, "grp-m-");
+  const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 4, "grp-m-");
   const womenGroups = buildGroupsStable(teams.filter((t) => t.competition === "women"), 4, "grp-w-");
   const groups = [...menGroups, ...womenGroups];
   const scheduled = scheduleGroupStageMatches(teams, groups);
@@ -1765,7 +1832,7 @@ function AdminView({ state, dispatch }) {
       {tab === "teams" && (
         <Section
           title="Teams"
-          sub={`Vaste deelnemers (${comp === "men" ? "19 mannenteams" : "4 vrouwenteams"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
+          sub={`Vaste deelnemers (${comp === "men" ? "20 mannenteams (5×4 — elk 3 groepswedstrijden)" : "4 vrouwenteams"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
         >
           {isLocked && (
             <div style={{ padding: "8px 14px", borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accent}22`, color: C.accent, fontSize: 11, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
