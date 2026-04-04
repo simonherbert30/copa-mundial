@@ -1748,12 +1748,20 @@ function AdminView({ state, dispatch }) {
               const tm = state.teams.find((t) => t.id === m.homeId);
               return tm?.competition === comp;
             });
-            const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
+            /** Vrouwen: groepsfase altijd op slot 4/6/8 (rondes 5/7/9) — toon die rondes ook zonder matchen. */
+            let slotIndices;
+            if (comp === "women") {
+              const fromMatches = allM.map((m) => m.slotIndex).filter((s) => s != null && s >= 0);
+              slotIndices = [...new Set([...fromMatches, ...[...WOMEN_GROUP_SLOTS]])].sort((a, b) => a - b);
+            } else {
+              const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
+              slotIndices = maxS >= 0 ? Array.from({ length: maxS + 1 }, (_, i) => i) : [];
+            }
             return (
               <>
-       {Array.from({ length: maxS + 1 }, (_, si) => {
+       {slotIndices.map((si) => {
             const sm = allM.filter((m) => m.slotIndex === si);
-            if (!sm.length) return null;
+            if (comp === "men" && sm.length === 0) return null;
             const adj = Number(state.slotAdjustMin?.[String(si)] ?? state.slotAdjustMin?.[si] ?? 0);
             return (
               <div key={si} style={{ marginBottom: 18 }}>
@@ -1774,7 +1782,13 @@ function AdminView({ state, dispatch }) {
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
-                  {sm.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
+                  {sm.length === 0 ? (
+                    <div style={{ padding: 16, textAlign: "center", color: C.text3, fontSize: 12, border: `1px dashed ${C.border}`, borderRadius: 8 }}>
+                      Geen wedstrijden gepland in deze ronde (vrouwen groep: 2 matchen per ronde 5, 7 en 9).
+                    </div>
+                  ) : (
+                    sm.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)
+                  )}
                 </div>
               </div>
             );
