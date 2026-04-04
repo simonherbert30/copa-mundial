@@ -1,6 +1,6 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect, useReducer, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useReducer, useCallback, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
 // ============================================================
@@ -13,6 +13,7 @@ const ADMIN_PASSWORD = "kopa2026";
 const RESET_PASSWORD = "kopa_reset";
 const NUM_FIELDS = 8;
 const SLOT_DURATION_MIN = 30;
+// Ideaal: minstens 1 vrije slot (30 min pauze) tussen twee wedstrijden van hetzelfde team (slot - last > REST_SLOTS)
 const REST_SLOTS = 1;
 const MEN_FINALS_SLOT = 13;   // slot 13 = 11:00 + 13×30min = 17:30
 const WOMEN_START_SLOT = 4;   // slot 4  = 11:00 + 4×30min  = 13:00
@@ -25,15 +26,10 @@ const START_MIN = 0;
 const FIELDS = Array.from({ length: NUM_FIELDS }, (_, i) => ({
   id: i + 1,
   name: `Veld ${i + 1}`,
-  sponsor: ["Integra", "Break Point", "CAPS", "Jouer.", "McAlson", "BLAGEUR", "Fourchette", "VICAR"][i],
+  sponsor: ["Monsieur Hotels", "AGO", "Jati Kebon", "Vicar", "NestBorn", "CVC", "ByJean", "Caps"][i],
 }));
 
-const SPONSORS = [
-  "Integra", "Break Point", "CAPS", "true. food agency",
-  "ghilles", "VICAR", "Jouer.", "BLAGEUR",
-  "Fourchette", "McAlson", "Love Stories", "ByJean",
-];
-
+// Enige sponsors = logos in public/sponsors/ (tekstbalk = zelfde namen als SPONSOR_LOGOS)
 const SPONSOR_LOGOS = [
   { name: "Vicar", src: "/sponsors/vicar.jpeg" },
   { name: "CVC", src: "/sponsors/cvc.jpeg" },
@@ -44,6 +40,7 @@ const SPONSOR_LOGOS = [
   { name: "Monsieur Hotels", src: "/sponsors/monsieur-hotels.jpeg" },
   { name: "Nestborn", src: "/sponsors/nestborn.jpeg" },
 ];
+const SPONSORS = SPONSOR_LOGOS.map((s) => s.name);
 
 // --- SEED DATA ---
 const SEED_WOMEN = ["Brazil V", "Germany V", "France V", "Spain V"];
@@ -52,6 +49,16 @@ const SEED_MEN = [
   "Portugal", "Nederland", "Italië", "België", "Kroatië", "Marokko",
   "Japan", "Zuid-Korea", "USA", "Mexico", "Uruguay", "Colombia",
   "Denemarken",
+];
+
+// Demo scheidsrechters (2 per mannenteam, cyclisch)
+const DEMO_REF_NAME_POOL = [
+  "Jan Peeters", "Tom Verstraeten", "Lucas Desmet", "Max Baeten", "Seppe Willems", "Niels Maes", "Pieter Claes", "Stijn Hendrickx",
+  "Bram Goossens", "Koen Lemmens", "Jens Coppens", "Wout Ruelens", "Arno Segers", "Dries Thijs", "Felix Noë", "Jeroen Aerts",
+  "Simon Hermans", "Vincent Fransen", "Thibo Martens", "Michiel Penders", "Sander Verbeeck", "Robin De Bruyne", "Nick Bogaerts",
+  "Tim Willekens", "Dylan Jacobs", "Lars Janssens", "Quinten Heylen", "Mathijs Geerts", "Louis Coppens", "Bas Raeymaekers",
+  "Daan Sterckx", "Finn Mertens", "Mauro Lenaerts", "Olivier Nijs", "Ruben Engels", "Victor Franckx", "Xavier Mol", "Yannick Peeters",
+  "Zeno Verdonck", "Alex Vandenbulcke", "Ben Oosterlinck", "Chris De Wilde", "Dirk Fontaine", "Eric Masschelein",
 ];
 
 // --- UTILS ---
@@ -161,13 +168,13 @@ function ensureMinMatches(existingMatches, groups, teams) {
 }
 
 // existingMatches = matches from other competitions already occupying slots/fields
+// Niet alle velden hoeven gebruikt: prioriteit = geen 3×30min op rij (max 2), liefst 30 min pauze tussen matchen.
 function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
   const scheduled = [];
   const unscheduled = shuffle([...matches]);
   let slot = startSlot;
-  let maxIter = 600;
+  let maxIter = 2500;
 
-  // Pre-index existing matches: slot → set of used fieldIds and teamIds
   const existingBySlot = {};
   existingMatches.forEach((m) => {
     if (m.slotIndex === null) return;
@@ -177,83 +184,62 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = []) {
     existingBySlot[m.slotIndex].teams.add(m.awayId);
   });
 
+  const maxTwoOk = (baseMatches, m, s) =>
+    consecutiveBefore(baseMatches, m.homeId, s) < 2 &&
+    consecutiveBefore(baseMatches, m.awayId, s) < 2;
+
+  const idealRestOk = (baseMatches, m, s) => {
+    const h = lastSlotOf(baseMatches, m.homeId);
+    const a = lastSlotOf(baseMatches, m.awayId);
+    return (h === null || s - h > REST_SLOTS) && (a === null || s - a > REST_SLOTS);
+  };
+
+  /** Geen dubbele booking; mag max 2 opeenvolgende slots; geen 3e opeenvolgende. */
+  const relaxedOk = (baseMatches, m, s) => {
+    const h = lastSlotOf(baseMatches, m.homeId);
+    const a = lastSlotOf(baseMatches, m.awayId);
+    if (h !== null && s <= h) return false;
+    if (a !== null && s <= a) return false;
+    return maxTwoOk(baseMatches, m, s);
+  };
+
+  const tryPlace = (teamsInSlot, fieldsUsed, slotMatches, predicate) => {
+    let progress = true;
+    while (progress) {
+      progress = false;
+      for (let i = unscheduled.length - 1; i >= 0; i--) {
+        const m = unscheduled[i];
+        if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
+        if (fieldsUsed.size >= NUM_FIELDS) break;
+        const baseForPred = [...scheduled, ...existingMatches, ...slotMatches];
+        if (!predicate(baseForPred, m, slot)) continue;
+        const fid = nextField(fieldsUsed);
+        m.slotIndex = slot;
+        m.fieldId = fid;
+        teamsInSlot.add(m.homeId);
+        teamsInSlot.add(m.awayId);
+        fieldsUsed.add(fid);
+        slotMatches.push(m);
+        unscheduled.splice(i, 1);
+        progress = true;
+        break;
+      }
+    }
+  };
+
   while (unscheduled.length > 0 && maxIter-- > 0) {
-    // Get already-occupied fields and teams in this slot from other competitions
     const existing = existingBySlot[slot] || { fields: new Set(), teams: new Set() };
     const teamsInSlot = new Set(existing.teams);
     const fieldsUsed = new Set(existing.fields);
     const slotMatches = [];
 
-    for (let i = unscheduled.length - 1; i >= 0; i--) {
-      const m = unscheduled[i];
-      if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
-      if (fieldsUsed.size >= NUM_FIELDS) break;
-
-      // Check rest constraint against both newly scheduled AND existing matches
-      const allScheduled = [...scheduled, ...existingMatches];
-      const homeLastSlot = lastSlotOf(allScheduled, m.homeId);
-      const awayLastSlot = lastSlotOf(allScheduled, m.awayId);
-      const restOk =
-        (homeLastSlot === null || slot - homeLastSlot > REST_SLOTS) &&
-        (awayLastSlot === null || slot - awayLastSlot > REST_SLOTS);
-
-      if (restOk) {
-        const fid = nextField(fieldsUsed);
-        m.slotIndex = slot;
-        m.fieldId = fid;
-        teamsInSlot.add(m.homeId);
-        teamsInSlot.add(m.awayId);
-        fieldsUsed.add(fid);
-        slotMatches.push(m);
-        unscheduled.splice(i, 1);
-      }
-    }
-
-    if (slotMatches.length === 0 && unscheduled.length > 0) {
-      // Nothing fit due to rest constraints — force-fill ignoring rest but still
-      // enforcing the max-2-consecutive rule (never 3 consecutive half-hours)
-      const allSched = [...scheduled, ...existingMatches];
-      for (let i = unscheduled.length - 1; i >= 0 && fieldsUsed.size < NUM_FIELDS; i--) {
-        const m = unscheduled[i];
-        if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
-        // Never schedule a 3rd consecutive slot for either team
-        if (consecutiveBefore(allSched, m.homeId, slot) >= 2) continue;
-        if (consecutiveBefore(allSched, m.awayId, slot) >= 2) continue;
-        const fid = nextField(fieldsUsed);
-        m.slotIndex = slot;
-        m.fieldId = fid;
-        teamsInSlot.add(m.homeId);
-        teamsInSlot.add(m.awayId);
-        fieldsUsed.add(fid);
-        slotMatches.push(m);
-        unscheduled.splice(i, 1);
-      }
-      // Last resort: skip this slot entirely and try the next one
-      // This avoids ever scheduling 3 consecutive half-hours for any team
-      if (slotMatches.length === 0 && maxIter < 580) {
-        slot++;
-        continue;
-      }
-      // Absolute fallback (only if stuck for very long): allow force-fill to avoid infinite loop
-      if (slotMatches.length === 0) {
-        for (let i = unscheduled.length - 1; i >= 0 && fieldsUsed.size < NUM_FIELDS; i--) {
-          const m = unscheduled[i];
-          if (teamsInSlot.has(m.homeId) || teamsInSlot.has(m.awayId)) continue;
-          const fid = nextField(fieldsUsed);
-          m.slotIndex = slot;
-          m.fieldId = fid;
-          teamsInSlot.add(m.homeId);
-          teamsInSlot.add(m.awayId);
-          fieldsUsed.add(fid);
-          slotMatches.push(m);
-          unscheduled.splice(i, 1);
-        }
-      }
-    }
+    tryPlace(teamsInSlot, fieldsUsed, slotMatches, (base, m, s) => idealRestOk(base, m, s) && maxTwoOk(base, m, s));
+    tryPlace(teamsInSlot, fieldsUsed, slotMatches, (base, m, s) => relaxedOk(base, m, s) && !idealRestOk(base, m, s));
 
     scheduled.push(...slotMatches);
     slot++;
   }
+
   return scheduled;
 }
 
@@ -512,7 +498,7 @@ function reducer(state, action) {
       let groupMatches = buildGroupMatches(newGroups);
       const extraMatches = ensureMinMatches(groupMatches, newGroups, compTeams);
       groupMatches = [...groupMatches, ...extraMatches];
-      // Schedule aware of other competition's matches to respect 6-field cap
+      // Schedule naast andere competitie (max. NUM_FIELDS velden per slot; rust heeft voorrang)
       // Women's group matches start at WOMEN_START_SLOT (13:00)
       const startSlot = comp === "women" ? WOMEN_START_SLOT : 0;
       const scheduled = scheduleMatches(groupMatches, startSlot, otherMatches);
@@ -589,6 +575,19 @@ function reducer(state, action) {
           const refs = [...(t.referees || ["", ""])];
           refs[index] = name;
           return { ...t, referees: refs };
+        }),
+      };
+    }
+    case "SEED_DEMO_REF_NAMES": {
+      let i = 0;
+      return {
+        ...state,
+        teams: state.teams.map((t) => {
+          if (t.competition !== "men") return t;
+          const n0 = DEMO_REF_NAME_POOL[i % DEMO_REF_NAME_POOL.length];
+          const n1 = DEMO_REF_NAME_POOL[(i + 1) % DEMO_REF_NAME_POOL.length];
+          i += 2;
+          return { ...t, referees: [n0, n1] };
         }),
       };
     }
@@ -758,6 +757,20 @@ input,button,select,textarea{font-family:inherit}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 ::selection{background:${C.gold};color:#000}
+`;
+
+// Big screen (ultrabreed ±384×192 cm, beeld 2:1): vult viewport, sponsorlogos schalen mee met vh
+const BIG_SCREEN_CSS = `
+.bs-root{box-sizing:border-box;width:100dvw;max-width:100dvw;height:100dvh;max-height:100dvh;overflow:hidden;display:flex;flex-direction:column;background:${C.bg};font-family:${FONT_BODY}}
+.bs-main{flex:1;min-height:0;min-width:0;overflow:hidden;display:flex;flex-direction:column}
+.bs-sponsor-bar{flex-shrink:0;display:flex;justify-content:space-between;align-items:center;padding:clamp(4px,0.65vh,12px) clamp(10px,1.2vw,36px);gap:clamp(6px,1.2vw,20px)}
+.bs-sponsor-logo{height:clamp(110px,15vh,320px);width:auto;max-width:min(46vw,640px);object-fit:contain;border-radius:8px}
+.bs-welcome{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:clamp(6px,1vh,16px) clamp(12px,1.5vw,32px);overflow:hidden}
+.bs-welcome-inner{max-width:min(96vw,2600px);width:100%;text-align:center;flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+.bs-welcome-sponsors{display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:clamp(10px,1.2vw,28px);flex-shrink:0;padding-top:clamp(8px,1vh,16px)}
+.bs-welcome-sponsors img{height:clamp(72px,9vh,180px);width:auto;max-width:min(20vw,220px);object-fit:contain;border-radius:8px;opacity:.9}
+.bs-grid-matches{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,max(220px,10.5vw)),1fr));gap:clamp(6px,0.7vh,12px);align-content:start;min-height:0;overflow-y:auto}
+.bs-standings-zone{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:clamp(4px,0.5vw,12px)}
 `;
 
 // ============================================================
@@ -1117,134 +1130,171 @@ function KnockoutBracket({ matches, teams, dispatch, showField = false, bigScree
 // ============================================================
 // MIRRORED KNOCKOUT BRACKET (Big Screen)
 // ============================================================
+const KO_PHASE_LABELS = { R16: "Ronde van 16", QF: "Kwartfinales", SF: "Halve finales", Final: "Finale" };
+
 function MirroredKnockoutBracket({ matches, teams, showField = false }) {
-  const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
-  if (!phases.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
+  const outerRef = useRef(null);
+  const [scale, setScale] = useState(1);
 
-  const CARD_W = 360;
-  const CARD_H = 110;
-  const V_GAP = 20;
-  const H_GAP = 50;
-  const LABEL_H = 44;
-  const PHASE_LABELS = { R16: "Ronde van 16", QF: "Kwartfinales", SF: "Halve finales", Final: "Finale" };
+  const layout = useMemo(() => {
+    const phases = KO_ROUND_ORDER.filter((p) => matches.some((m) => m.phase === p));
+    if (!phases.length) return null;
 
-  const byPhase = {};
-  phases.forEach((p) => { byPhase[p] = matches.filter((m) => m.phase === p); });
+    const CARD_W = 360;
+    const CARD_H = 110;
+    const V_GAP = 20;
+    const H_GAP = 50;
+    const LABEL_H = 44;
 
-  const hasFinal = phases.includes("Final");
-  const preFinalPhases = phases.filter((p) => p !== "Final");
-  const unit = CARD_H + V_GAP;
+    const byPhase = {};
+    phases.forEach((p) => { byPhase[p] = matches.filter((m) => m.phase === p); });
 
-  const leftByPhase = {};
-  const rightByPhase = {};
-  preFinalPhases.forEach((p) => {
-    const m = byPhase[p];
-    const half = Math.ceil(m.length / 2);
-    leftByPhase[p] = m.slice(0, half);
-    rightByPhase[p] = m.slice(half);
-  });
+    const hasFinal = phases.includes("Final");
+    const preFinalPhases = phases.filter((p) => p !== "Final");
+    const unit = CARD_H + V_GAP;
 
-  const firstPhase = preFinalPhases[0];
-  const firstCount = leftByPhase[firstPhase]?.length || 1;
-  const totalH = firstCount * unit;
-  const nPreCols = preFinalPhases.length;
-  const nCols = hasFinal ? 2 * nPreCols + 1 : 2 * nPreCols;
-  const colW = CARD_W + H_GAP;
-  const totalW = nCols * colW - H_GAP;
+    const leftByPhase = {};
+    const rightByPhase = {};
+    preFinalPhases.forEach((p) => {
+      const m = byPhase[p];
+      const half = Math.ceil(m.length / 2);
+      leftByPhase[p] = m.slice(0, half);
+      rightByPhase[p] = m.slice(half);
+    });
 
-  const matchY = (ri, mi) => {
-    const factor = Math.pow(2, ri);
-    return (mi * factor + (factor - 1) / 2) * unit;
-  };
+    const firstPhase = preFinalPhases[0];
+    const firstCount = leftByPhase[firstPhase]?.length || 1;
+    const totalH = firstCount * unit;
+    const nPreCols = preFinalPhases.length;
+    const nCols = hasFinal ? 2 * nPreCols + 1 : 2 * nPreCols;
+    const colW = CARD_W + H_GAP;
+    const totalW = nCols * colW - H_GAP;
 
-  const renderCard = (m, x, y) => {
-    const home = teams.find((t) => t.id === m.homeId);
-    const away = teams.find((t) => t.id === m.awayId);
-    const isDone = m.status === "completed";
-    const isLiveM = m.status === "live";
-    const winner = getMatchWinner(m);
-    return (
-      <div key={m.id} style={{ position: "absolute", left: x, top: y, width: CARD_W }}>
-        <div style={{ background: C.card, border: `1px solid ${isLiveM ? C.live + "55" : isDone ? C.gold + "44" : C.border}`, borderRadius: 12, overflow: "hidden" }}>
-          {[{ tid: m.homeId, score: m.scoreHome, name: home?.name }, { tid: m.awayId, score: m.scoreAway, name: away?.name }].map((side, si) => (
-            <div key={si} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: si === 0 ? `1px solid ${C.border}` : "none", background: winner === side.tid ? C.goldBg : "transparent" }}>
-              <span style={{ fontSize: 24, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{side.name || "TBD"}</span>
-              <span style={{ fontSize: 28, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: 30, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{isDone || isLiveM ? (side.score ?? 0) : "–"}</span>
-            </div>
-          ))}
-          {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
-            <div style={{ fontSize: 14, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} strafsch.)</div>
-          )}
-          {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: 11, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
+    const matchY = (ri, mi) => {
+      const factor = Math.pow(2, ri);
+      return (mi * factor + (factor - 1) / 2) * unit;
+    };
+
+    const renderCard = (m, x, y) => {
+      const home = teams.find((t) => t.id === m.homeId);
+      const away = teams.find((t) => t.id === m.awayId);
+      const isDone = m.status === "completed";
+      const isLiveM = m.status === "live";
+      const winner = getMatchWinner(m);
+      return (
+        <div key={m.id} style={{ position: "absolute", left: x, top: y, width: CARD_W }}>
+          <div style={{ background: C.card, border: `1px solid ${isLiveM ? C.live + "55" : isDone ? C.gold + "44" : C.border}`, borderRadius: 12, overflow: "hidden" }}>
+            {[{ tid: m.homeId, score: m.scoreHome, name: home?.name }, { tid: m.awayId, score: m.scoreAway, name: away?.name }].map((side, si) => (
+              <div key={si} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: si === 0 ? `1px solid ${C.border}` : "none", background: winner === side.tid ? C.goldBg : "transparent" }}>
+                <span style={{ fontSize: 24, fontWeight: 700, color: winner === side.tid ? C.gold : C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{side.name || "TBD"}</span>
+                <span style={{ fontSize: 28, fontWeight: 900, color: isDone ? C.white : C.text3, minWidth: 30, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{isDone || isLiveM ? (side.score ?? 0) : "–"}</span>
+              </div>
+            ))}
+            {m.penHome !== null && m.penHome !== undefined && m.penAway !== null && (
+              <div style={{ fontSize: 14, color: C.orange, textAlign: "center", padding: "2px 0" }}>({m.penHome}–{m.penAway} strafsch.)</div>
+            )}
+            {showField && m.fieldId && (() => { const f = FIELDS.find((fi) => fi.id === m.fieldId); return f ? <div style={{ fontSize: 11, color: C.text3, textAlign: "center", padding: "2px 4px", borderTop: `1px solid ${C.border}` }}>{f.sponsor} · {slotToTime(m.slotIndex ?? 0)}</div> : null; })()}
+          </div>
         </div>
-      </div>
-    );
-  };
+      );
+    };
 
-  const cards = [];
-  const lines = [];
+    const cards = [];
+    const lines = [];
 
-  preFinalPhases.forEach((phase, pi) => {
-    const leftX = pi * colW;
-    const rightX = (nCols - 1 - pi) * colW;
-    const leftMatches = leftByPhase[phase] || [];
-    const rightMatches = rightByPhase[phase] || [];
+    preFinalPhases.forEach((phase, pi) => {
+      const leftX = pi * colW;
+      const rightX = (nCols - 1 - pi) * colW;
+      const leftMatches = leftByPhase[phase] || [];
+      const rightMatches = rightByPhase[phase] || [];
 
-    leftMatches.forEach((m, mi) => cards.push(renderCard(m, leftX, matchY(pi, mi) + LABEL_H)));
-    rightMatches.forEach((m, mi) => cards.push(renderCard(m, rightX, matchY(pi, mi) + LABEL_H)));
+      leftMatches.forEach((m, mi) => cards.push(renderCard(m, leftX, matchY(pi, mi) + LABEL_H)));
+      rightMatches.forEach((m, mi) => cards.push(renderCard(m, rightX, matchY(pi, mi) + LABEL_H)));
 
-    if (pi > 0) {
-      const prevLeftX = (pi - 1) * colW + CARD_W;
-      const curLeftX = pi * colW;
-      leftMatches.forEach((_, mi) => {
-        const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
-        const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
-        const pY = matchY(pi, mi) + CARD_H / 2;
-        const midX = prevLeftX + H_GAP / 2;
-        lines.push(<g key={`l-${phase}-${mi}`}><line x1={prevLeftX} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" /><line x1={prevLeftX} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={pY} x2={curLeftX} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" /></g>);
-      });
-      const prevRightX = (nCols - pi) * colW;
-      const curRightX = (nCols - 1 - pi) * colW + CARD_W;
-      rightMatches.forEach((_, mi) => {
-        const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
-        const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
-        const pY = matchY(pi, mi) + CARD_H / 2;
-        const midX = curRightX + H_GAP / 2;
-        lines.push(<g key={`r-${phase}-${mi}`}><line x1={prevRightX} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" /><line x1={prevRightX} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={pY} x2={curRightX} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" /></g>);
-      });
+      if (pi > 0) {
+        const prevLeftX = (pi - 1) * colW + CARD_W;
+        const curLeftX = pi * colW;
+        leftMatches.forEach((_, mi) => {
+          const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
+          const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
+          const pY = matchY(pi, mi) + CARD_H / 2;
+          const midX = prevLeftX + H_GAP / 2;
+          lines.push(<g key={`l-${phase}-${mi}`}><line x1={prevLeftX} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" /><line x1={prevLeftX} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={pY} x2={curLeftX} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" /></g>);
+        });
+        const prevRightX = (nCols - pi) * colW;
+        const curRightX = (nCols - 1 - pi) * colW + CARD_W;
+        rightMatches.forEach((_, mi) => {
+          const c1Y = matchY(pi - 1, mi * 2) + CARD_H / 2;
+          const c2Y = matchY(pi - 1, mi * 2 + 1) + CARD_H / 2;
+          const pY = matchY(pi, mi) + CARD_H / 2;
+          const midX = curRightX + H_GAP / 2;
+          lines.push(<g key={`r-${phase}-${mi}`}><line x1={prevRightX} y1={c1Y} x2={midX} y2={c1Y} stroke={C.border2} strokeWidth="1.5" /><line x1={prevRightX} y1={c2Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={c1Y} x2={midX} y2={c2Y} stroke={C.border2} strokeWidth="1.5" /><line x1={midX} y1={pY} x2={curRightX} y2={pY} stroke={C.accent} strokeWidth="1.5" strokeOpacity="0.35" /></g>);
+        });
+      }
+    });
+
+    if (hasFinal) {
+      const finalX = nPreCols * colW;
+      const finalY = totalH / 2 - CARD_H / 2;
+      const fm = byPhase["Final"][0];
+      if (fm) cards.push(renderCard(fm, finalX, finalY + LABEL_H));
+
+      if (preFinalPhases.length > 0) {
+        const lastLeftX = (nPreCols - 1) * colW + CARD_W;
+        const lastRightX = (nPreCols + 1) * colW;
+        const fy = finalY + CARD_H / 2;
+        const lastPi = preFinalPhases.length - 1;
+        const leftSFY = matchY(lastPi, 0) + CARD_H / 2;
+        lines.push(<g key="final-l"><line x1={lastLeftX} y1={leftSFY} x2={finalX} y2={fy} stroke={C.accent} strokeWidth="2" strokeOpacity="0.4" /></g>);
+        lines.push(<g key="final-r"><line x1={lastRightX} y1={leftSFY} x2={finalX + CARD_W} y2={fy} stroke={C.accent} strokeWidth="2" strokeOpacity="0.4" /></g>);
+      }
     }
-  });
 
-  if (hasFinal) {
-    const finalX = nPreCols * colW;
-    const finalY = totalH / 2 - CARD_H / 2;
-    const fm = byPhase["Final"][0];
-    if (fm) cards.push(renderCard(fm, finalX, finalY + LABEL_H));
+    return { totalW, totalH, LABEL_H, nCols, nPreCols, preFinalPhases, hasFinal, CARD_W, colW, lines, cards };
+  }, [matches, teams, showField]);
 
-    if (preFinalPhases.length > 0) {
-      const lastLeftX = (nPreCols - 1) * colW + CARD_W;
-      const lastRightX = (nPreCols + 1) * colW;
-      const fy = finalY + CARD_H / 2;
-      const lastPi = preFinalPhases.length - 1;
-      const leftSFY = matchY(lastPi, 0) + CARD_H / 2;
-      const rightSFY = matchY(lastPi, 0) + CARD_H / 2;
-      lines.push(<g key="final-l"><line x1={lastLeftX} y1={leftSFY} x2={finalX} y2={fy} stroke={C.accent} strokeWidth="2" strokeOpacity="0.4" /></g>);
-      lines.push(<g key="final-r"><line x1={lastRightX} y1={rightSFY} x2={finalX + CARD_W} y2={fy} stroke={C.accent} strokeWidth="2" strokeOpacity="0.4" /></g>);
-    }
+  useLayoutEffect(() => {
+    if (!layout) return;
+    const el = outerRef.current;
+    const contentH = layout.totalH + layout.LABEL_H;
+    const contentW = layout.totalW;
+    const update = () => {
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const mh = Math.max(100, r.height - 8);
+      const mw = Math.max(100, r.width - 8);
+      setScale(Math.min(1, mh / contentH, mw / contentW));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    if (el) ro.observe(el);
+    window.addEventListener("resize", update);
+    return () => { ro.disconnect(); window.removeEventListener("resize", update); };
+  }, [layout]);
+
+  if (!layout) {
+    return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
   }
 
+  const { totalW, totalH, LABEL_H, nCols, nPreCols, preFinalPhases, hasFinal, CARD_W, colW, lines, cards } = layout;
+  const contentH = totalH + LABEL_H;
+
   return (
-    <div style={{ overflowX: "auto", overflowY: "auto", height: "100%" }}>
-      <div style={{ position: "relative", width: totalW, height: totalH + LABEL_H, margin: "0 auto" }}>
-        <svg style={{ position: "absolute", top: LABEL_H, left: 0, pointerEvents: "none" }} width={totalW} height={totalH} viewBox={`0 0 ${totalW} ${totalH}`}>{lines}</svg>
-        {preFinalPhases.map((phase, pi) => (
-          <div key={`label-${phase}`}>
-            <div style={{ position: "absolute", left: pi * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 18, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>{PHASE_LABELS[phase] || phase}</div>
-            <div style={{ position: "absolute", left: (nCols - 1 - pi) * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 18, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>{PHASE_LABELS[phase] || phase}</div>
+    <div ref={outerRef} style={{ flex: 1, minHeight: 0, minWidth: 0, width: "100%", display: "flex", justifyContent: "center", alignItems: "flex-start", overflow: "hidden" }}>
+      <div style={{ width: totalW * scale, height: contentH * scale, overflow: "hidden", flexShrink: 0 }}>
+        <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: totalW, height: contentH }}>
+          <div style={{ position: "relative", width: totalW, height: contentH, margin: "0 auto" }}>
+            <svg style={{ position: "absolute", top: LABEL_H, left: 0, pointerEvents: "none" }} width={totalW} height={totalH} viewBox={`0 0 ${totalW} ${totalH}`}>{lines}</svg>
+            {preFinalPhases.map((phase, pi) => (
+              <div key={`label-${phase}`}>
+                <div style={{ position: "absolute", left: pi * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 18, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>{KO_PHASE_LABELS[phase] || phase}</div>
+                <div style={{ position: "absolute", left: (nCols - 1 - pi) * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 18, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>{KO_PHASE_LABELS[phase] || phase}</div>
+              </div>
+            ))}
+            {hasFinal && <div style={{ position: "absolute", left: nPreCols * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 22, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>Finale</div>}
+            {cards}
           </div>
-        ))}
-        {hasFinal && <div style={{ position: "absolute", left: nPreCols * colW, top: 0, width: CARD_W, textAlign: "center", fontSize: 22, fontWeight: 700, color: C.gold, letterSpacing: "0.1em", textTransform: "uppercase" }}>Finale</div>}
-        {cards}
+        </div>
       </div>
     </div>
   );
@@ -1360,7 +1410,10 @@ function AdminView({ state, dispatch }) {
           )}
           {comp === "men" && teams.length > 0 && (
             <div style={{ marginTop: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gold, marginBottom: 10, fontFamily: FONT_DISPLAY }}>👔 Scheidsrechters per team</h3>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: C.gold, margin: 0, fontFamily: FONT_DISPLAY }}>👔 Scheidsrechters per team</h3>
+                <Btn sz="sm" v="secondary" onClick={() => dispatch({ type: "SEED_DEMO_REF_NAMES" })}>Laad testdata scheidsrechters</Btn>
+              </div>
               <p style={{ fontSize: 11, color: C.text2, marginBottom: 10 }}>Geef twee scheidsrechternamen per mannenteam in. Zij fluiten ook vrouwenwedstrijden.</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 8 }}>
                 {teams.map((t) => (
