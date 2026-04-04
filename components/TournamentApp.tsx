@@ -15,7 +15,12 @@ const SLOT_DURATION_MIN = 30;
 // Harde regel: geen team speelt twee opeenvolgende halfuren (planning laat velden leeg indien nodig).
 // Ronde R (1-based) = standaard halfuur vanaf 11:00: slot R-1. Slot 8 = ronde 9: mannen pauzeren groepsfase, vrouwen spelen voorronde.
 const PAUSE_SLOT_INDEX = 8;
-const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]); // vrouwenvoorrondes rondes 5, 7, 9
+/** Vrouwengroep: 2 matchen per ronde — nl. rondes 5, 7, 9 (slots 4, 6, 8). Ronde 5 telt 6 velden (4 man + 2 vrouw). */
+const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]);
+/** Mannen groepsfase: exact aantal velden per voorronde (ronde 1–5 = slot 0–4). */
+const MEN_GROUP_EARLY_MATCH_CAPS = [4, 5, 4, 5, 4];
+/** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
+const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 const FIRST_GROUP_ROUND_SLOTS = 4; // rondes 1–4: max 6 velden tegelijk
 const MAX_FIELDS_FIRST_GROUP_ROUNDS = 6;
 const SLOT_ROUND_QF = 9;           // ronde 10 — QF mannen
@@ -116,6 +121,7 @@ function slotToTime(slotIndex) {
 /** Admin/schema: ronde = slot + 1 (halfuur vanaf 11:00, aanpasbaar via tijdsverschuiving). */
 function scheduleRoundLabel(slotIndex) {
   const r = slotIndex + 1;
+  if (slotIndex === 4) return `Ronde ${r} · 6 matchen (4 man + 2 vrouw)`;
   if (slotIndex === PAUSE_SLOT_INDEX) return `Ronde ${r} · Mannen pauze · vrouwen voorronde`;
   if (slotIndex === SLOT_ROUND_QF) return `Ronde ${r} · Kwartfinales`;
   if (slotIndex === SLOT_ROUND_SF) return `Ronde ${r} · Halve finales · vrouwenfinale`;
@@ -240,19 +246,49 @@ function countGroupRoundGapViolations(matches) {
   return n;
 }
 
+function countMenGroupPlanViolations(matches, teams) {
+  let pen = 0;
+  for (let s = 0; s < MEN_GROUP_EARLY_MATCH_CAPS.length; s++) {
+    const cap = MEN_GROUP_EARLY_MATCH_CAPS[s];
+    const nMen = matches.filter(
+      (m) => m.phase === "group" && m.slotIndex === s && teams.find((t) => t.id === m.homeId)?.competition === "men",
+    ).length;
+    pen += Math.abs(nMen - cap) * 800;
+  }
+  return pen;
+}
+
+function countWomenGroupPlanViolations(matches, teams) {
+  let pen = 0;
+  for (const s of [4, 6, 8]) {
+    const nW = matches.filter((m) => m.phase === "group" && m.slotIndex === s && isWomenGroupMatch(m, teams)).length;
+    pen += Math.abs(nW - WOMEN_MATCHES_PER_WOMEN_SLOT) * 800;
+  }
+  const wantTotal4 = MEN_GROUP_EARLY_MATCH_CAPS[4] + WOMEN_MATCHES_PER_WOMEN_SLOT;
+  const nSlot4 = matches.filter((m) => m.phase === "group" && m.slotIndex === 4).length;
+  pen += Math.abs(nSlot4 - wantTotal4) * 500;
+  return pen;
+}
+
 // Lager score = beter: geen opeenvolgende groepsrondes per team; onvolledige planning zwaar gestraft.
-function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams = [], tries = 80) {
+function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams = [], tries = 80, schedOpts = {}) {
   let bestTrial = null;
   let bestScore = Infinity;
   for (let t = 0; t < tries; t++) {
     const trial = cloneForScheduling(matches);
-    scheduleMatches(trial, startSlot, existingMatches, teams);
+    scheduleMatches(trial, startSlot, existingMatches, teams, schedOpts);
     const pending = trial.filter((m) => m.slotIndex === null).length;
     const placed = trial.filter((m) => m.slotIndex !== null);
     const combined = [...existingMatches, ...placed];
     const back = countTeamBackToBackSlots(combined);
     const gap = countGroupRoundGapViolations(combined);
-    const score = gap * 40 + back * 10 + pending * 10000;
+    const planPen =
+      schedOpts.planPenalty === "men"
+        ? countMenGroupPlanViolations(combined, teams)
+        : schedOpts.planPenalty === "women"
+          ? countWomenGroupPlanViolations(combined, teams)
+          : 0;
+    const score = planPen + gap * 40 + back * 10 + pending * 10000;
     if (score < bestScore) {
       bestScore = score;
       bestTrial = trial;
@@ -262,7 +298,9 @@ function scheduleMatchesBest(matches, startSlot = 0, existingMatches = [], teams
 }
 
 // Geen twee wedstrijden op rij per team; max 6 velden in eerste vier ronden; mannen geen groep in slot 8.
-function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = []) {
+// opts.matchCapAtSlot(slot) → max. aantal matchen in dit slot voor deze batch (optioneel); anders veldlimiet.
+function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [], opts = {}) {
+  const matchCapAtSlot = opts.matchCapAtSlot;
   const scheduled = [];
   const unscheduled = shuffle([...matches]);
   let slot = startSlot;
@@ -305,7 +343,7 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
 
   const tryPlace = (teamsInSlot, fieldsUsed, slotMatches, scoreFn, maxFieldsHere) => {
     let progress = true;
-    while (progress && fieldsUsed.size < maxFieldsHere) {
+    while (progress && slotMatches.length < maxFieldsHere && fieldsUsed.size < maxFieldsHere) {
       progress = false;
       let bestIdx = null;
       let bestSc = null;
@@ -347,7 +385,11 @@ function scheduleMatches(matches, startSlot = 0, existingMatches = [], teams = [
     const fieldsUsed = new Set(existing.fields);
     const slotMatches = [];
 
-    tryPlace(teamsInSlot, fieldsUsed, slotMatches, idealScore, maxFieldsAtSchedulingSlot(slot));
+    const maxFieldsBase = maxFieldsAtSchedulingSlot(slot);
+    const cap = matchCapAtSlot ? matchCapAtSlot(slot) : null;
+    const maxHere = cap != null ? Math.min(maxFieldsBase, cap) : maxFieldsBase;
+
+    tryPlace(teamsInSlot, fieldsUsed, slotMatches, idealScore, maxHere);
 
     scheduled.push(...slotMatches);
     slot++;
@@ -668,13 +710,22 @@ function clampScreenRotateSec(n) {
 
 function sanitizeScreenView(sv) {
   const arr = Array.isArray(sv) ? [...sv] : [sv || "welcome"];
-  const mapped = arr.map((v) => {
-    if (v === "all" || v === "next-matches") return "welcome";
-    if (v === "men-groups" || v === "women-groups") return "all-poules";
-    if (v === "men-poules-1" || v === "men-poules-2" || v === "women-poules") return "all-poules";
-    return v;
-  });
-  const u = [...new Set(mapped)].filter(Boolean);
+  const mapped = arr.flatMap((v) => {
+    if (v === "all" || v === "next-matches") return ["welcome"];
+    if (v === "standings") return [];
+    if (
+      v === "men-groups" ||
+      v === "women-groups" ||
+      v === "all-poules" ||
+      v === "men-poules-1" ||
+      v === "men-poules-2" ||
+      v === "women-poules"
+    ) {
+      return ["poules-men-ab", "poules-men-cd-women"];
+    }
+    return [v];
+  }).filter(Boolean);
+  const u = [...new Set(mapped)];
   return u.length ? u : ["welcome"];
 }
 
@@ -685,8 +736,16 @@ function createInitialState() {
   const groups = [...menGroups, ...womenGroups];
   const menGroupMatches = buildGroupMatches(menGroups);
   const womenGroupMatches = buildGroupMatches(womenGroups);
-  const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 96);
-  const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 96);
+  const menSchedOpts = {
+    matchCapAtSlot: (s) => (s >= 0 && s < MEN_GROUP_EARLY_MATCH_CAPS.length ? MEN_GROUP_EARLY_MATCH_CAPS[s] : null),
+    planPenalty: "men",
+  };
+  const womenSchedOpts = {
+    matchCapAtSlot: (s) => (WOMEN_GROUP_SLOTS.has(s) ? WOMEN_MATCHES_PER_WOMEN_SLOT : null),
+    planPenalty: "women",
+  };
+  const menScheduled = scheduleMatchesBest(menGroupMatches, 0, [], teams, 120, menSchedOpts);
+  const womenScheduled = scheduleMatchesBest(womenGroupMatches, 0, menScheduled, teams, 120, womenSchedOpts);
   const scheduled = [...menScheduled, ...womenScheduled];
   const base = {
     teams, groups, matches: scheduled, screenView: ["welcome"], slotAdjustMin: {}, screenRotateSec: DEFAULT_SCREEN_ROTATE_SEC,
@@ -1583,9 +1642,13 @@ function AdminView({ state, dispatch }) {
   const isLocked = groups.length > 0;
   const allGroupsDone = isLocked && matches.filter((m) => m.phase === "group").every((m) => m.status === "completed");
 
+  const isScheduleTab = tab === "schedule-men" || tab === "schedule-women";
+  const scheduleComp = tab === "schedule-women" ? "women" : "men";
+
   const tabList = [
     { id: "teams", label: "Teams" },
-    { id: "schedule", label: "Schema" },
+    { id: "schedule-men", label: "Schema Mannen" },
+    { id: "schedule-women", label: "Schema Vrouwen" },
     { id: "standings", label: "Stand" },
     ...(hasKO ? [{ id: "knockout", label: isW ? "Finale" : "Knockout" }] : []),
     { id: "display", label: "Scherm" },
@@ -1593,13 +1656,25 @@ function AdminView({ state, dispatch }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 14 }}><Tabs tabs={tabList} active={tab} onChange={setTab} /></div>
+      <div style={{ marginBottom: 14 }}>
+        <Tabs
+          tabs={tabList}
+          active={tab}
+          onChange={(id) => {
+            setTab(id);
+            if (id === "schedule-men") setComp("men");
+            if (id === "schedule-women") setComp("women");
+          }}
+        />
+      </div>
+      {!isScheduleTab && (
       <div style={{ marginBottom: 14 }}>
         <Tabs tabs={[
           { id: "men", label: `Mannen (${state.teams.filter((t) => t.competition === "men").length})` },
           { id: "women", label: `Vrouwen (${state.teams.filter((t) => t.competition === "women").length})` },
         ]} active={comp} onChange={(c) => { setComp(c); if (c === "women" && tab === "knockout") setTab("standings"); }} />
       </div>
+      )}
 
       {tab === "teams" && (
         <Section
@@ -1647,10 +1722,16 @@ function AdminView({ state, dispatch }) {
         </Section>
       )}
 
-      {tab === "schedule" && (
-        <Section title="Schema" sub={`${state.matches.length} wedstrijden totaal · zelfde rondes & uren voor man & vrouw · apart ingedeeld · halfuur vanaf ${slotToTime(0)} · vrouwenvoorrondes rondes 5/7/9 · ronde 9 geen mannengroep · 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}>
+      {isScheduleTab && (
+        <Section
+          title={scheduleComp === "men" ? "Schema Mannen" : "Schema Vrouwen"}
+          sub={`${scheduleComp === "men" ? "Mannen" : "Vrouwen"}wedstrijden op tijdlijn · halfuur vanaf ${slotToTime(0)} · voorrondes 1–5: 4 / 5 / 4 / 5 / 6 velden (ronde 5 = 4 man + 2 vrouw); vrouwen ook rondes 7 & 9 · ronde 10 QF, 11 SF (+ vrouwenfinale), 12 mannenfinale`}
+        >
           {(() => {
-            const allM = state.matches;
+            const allM = state.matches.filter((m) => {
+              const tm = state.teams.find((t) => t.id === m.homeId);
+              return tm?.competition === scheduleComp;
+            });
             const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
             return (
               <>
@@ -1743,7 +1824,7 @@ function AdminView({ state, dispatch }) {
         return (
         <Section title="Groot Scherm Beheer" sub="Selecteer één of meerdere weergaven — rotatie alleen actief als er meer dan één weergave gekozen is">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 6 }}>
-            {[{ id: "welcome", label: "Welkom" }, { id: "all-poules", label: "Alle poules (M+V)" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "standings", label: "Stand" }, { id: "finals", label: "Finales" }].map((v) => {
+            {[{ id: "welcome", label: "Welkom" }, { id: "poules-men-ab", label: "Poules Mannen A–B" }, { id: "poules-men-cd-women", label: "Poules M C–D + Vrouwen" }, { id: "men-knockout", label: "Mannen Knockout" }, { id: "finals", label: "Finales" }].map((v) => {
               const isSel = selectedViews.includes(v.id);
               return (
               <Card key={v.id} onClick={() => dispatch({ type: "TOGGLE_SCREEN_VIEW", payload: v.id })}
@@ -1767,7 +1848,7 @@ function AdminView({ state, dispatch }) {
             )}
           </Card>
           <Card style={{ marginTop: 14, textAlign: "center" }}>
-            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave. Ronde-tijden stel je in bij het tabblad <strong style={{ color: C.gold }}>Schema</strong>.</p>
+            <p style={{ color: C.text2, fontSize: 12 }}>Open <strong style={{ color: C.accent }}>#screen</strong> in een ander tabblad of op een apart apparaat voor de weergave. Ronde-tijden stel je in bij <strong style={{ color: C.gold }}>Schema Mannen / Schema Vrouwen</strong>.</p>
           </Card>
           <div style={{ marginTop: 22, borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
             <h3 style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gevaarzone</h3>
@@ -1984,82 +2065,71 @@ function ScreenView({ state }) {
     );
   };
 
-  // ---- "STANDINGS" view ----
-  if (view === "standings") {
-    const menGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men");
-    const womenGroups = state.groups.filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women");
+  const menGroupsSorted = state.groups
+    .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men")
+    .sort((a, b) => a.name.localeCompare(b.name, "nl"));
+  const womenGroupsSorted = state.groups
+    .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women")
+    .sort((a, b) => a.name.localeCompare(b.name, "nl"));
+
+  // ---- Mannen poules A–B ----
+  if (view === "poules-men-ab") {
+    const chunk = menGroupsSorted.slice(0, 2);
+    const sub = chunk.map((g) => g.name).join(" · ") || "—";
     return (
       <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
-        <div style={{ flex: 1, overflow: "hidden", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 18 }}>
-          {womenGroups.length > 0 && (
-            <div style={{ flex: "0 0 auto" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.blue}30` }}>
-                <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen competitie</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
-                {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-              </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 36px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, paddingBottom: 12, borderBottom: `2px solid ${C.orange}30`, flexShrink: 0 }}>
+            <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
+            <div>
+              <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules A–B</span>
+              <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{sub}</span>
             </div>
-          )}
-          {menGroups.length > 0 && (
-            <div style={{ flex: "0 0 auto" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.orange}30` }}>
-                <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
-                <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD }}>Mannen competitie</span>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
-                {menGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
-              </div>
-            </div>
-          )}
-          {state.groups.length === 0 && <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen stand.</div>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
+            {chunk.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+          </div>
         </div>
       </div>
     );
   }
 
-  // ---- Alle poules (mannen + vrouwen) op één groot scherm ----
-  if (view === "all-poules") {
-    const menGroups = state.groups
-      .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "men")
-      .sort((a, b) => a.name.localeCompare(b.name, "nl"));
-    const womenGroups = state.groups
-      .filter((g) => state.teams.find((t) => t.id === g.teamIds[0])?.competition === "women")
-      .sort((a, b) => a.name.localeCompare(b.name, "nl"));
+  // ---- Mannen poules C–D + vrouwen poules ----
+  if (view === "poules-men-cd-women") {
+    const menCd = menGroupsSorted.slice(2, 4);
     return (
       <div style={{ ...SHELL_BG, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_BODY, overflow: "hidden" }}>
         <style>{GLOBAL_CSS}</style>
         <SponsorLogos />
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 36px", display: "flex", flexDirection: "column", gap: 22 }}>
-          {womenGroups.length > 0 && (
+          {womenGroupsSorted.length > 0 && (
             <div style={{ flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.blue}30` }}>
                 <div style={{ width: 6, height: 36, background: C.blue, borderRadius: 2 }} />
                 <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.blue, ...HEAD }}>Vrouwen Poules</span>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
-                {womenGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+                {womenGroupsSorted.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
               </div>
             </div>
           )}
-          {menGroups.length > 0 && (
+          {menCd.length > 0 && (
             <div style={{ flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, paddingBottom: 10, borderBottom: `2px solid ${C.orange}30` }}>
                 <div style={{ width: 6, height: 36, background: C.orange, borderRadius: 2 }} />
                 <div>
-                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules</span>
-                  <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{menGroups.map((g) => g.name).join(" · ")}</span>
+                  <span style={{ fontFamily: FONT_DISPLAY, fontSize: 50, color: C.orange, ...HEAD, display: "block" }}>Mannen Poules C–D</span>
+                  <span style={{ fontSize: 22, color: C.text2, fontWeight: 600 }}>{menCd.map((g) => g.name).join(" · ")}</span>
                 </div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 12 }}>
-                {menGroups.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
+                {menCd.map((g) => <StandingsTable key={g.id} group={g} matches={state.matches} teams={state.teams} compact />)}
               </div>
             </div>
           )}
-          {menGroups.length === 0 && womenGroups.length === 0 && (
+          {menCd.length === 0 && womenGroupsSorted.length === 0 && (
             <div style={{ textAlign: "center", padding: 60, color: C.text3, fontSize: 32 }}>Nog geen poules.</div>
           )}
         </div>
