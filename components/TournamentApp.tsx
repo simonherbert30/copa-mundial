@@ -17,12 +17,12 @@ const SLOT_DURATION_MIN = 30;
 const PAUSE_SLOT_INDEX = 8;
 /** Vrouwengroep (4 teams): rondes 5, 7, 9 — steeds 2 duels zodat alle 4 teams spelen; slots 4, 6, 8. Ronde 5 = 4 man + 2 vrouw op het veld. */
 const WOMEN_GROUP_SLOTS = new Set([4, 6, 8]);
-/** Mannen groepsfase: exact aantal velden per voorronde (ronde 1–5 = slot 0–4). */
-const MEN_GROUP_EARLY_MATCH_CAPS = [4, 5, 4, 5, 4];
+/** Mannen groepsfase: max. mannen-matchen per slot (slots 0–7 vóór pauze slot 8). Som = 40 (4×10 RR-duels). */
+const MEN_GROUP_EARLY_MATCH_CAPS = [5, 5, 5, 5, 5, 5, 5, 5];
 /** Vrouwen per vrouwen-ronde (slots 4, 6, 8): steeds 2 matchen. */
 const WOMEN_MATCHES_PER_WOMEN_SLOT = 2;
 /** Verhoog bij wijziging groepsplanner; oude localStorage-url-state krijgt nieuwe indeling. */
-const GROUP_SCHEDULE_VERSION = 6;
+const GROUP_SCHEDULE_VERSION = 7;
 /** Knockout-placeholder rijen (QF/SF/Final zonder teams) — migratie naar vaste skeleton-ids. */
 const KO_PLACEHOLDER_VERSION = 2;
 const MEN_KO_PLACEHOLDER_IDS = {
@@ -1094,7 +1094,7 @@ function mergeKnockoutAdvancements(currentMatches, updates) {
 
 function createInitialState() {
   const teams = buildFixedTeams();
-  const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 4, "grp-m-");
+  const menGroups = buildGroupsStable(teams.filter((t) => t.competition === "men"), 5, "grp-m-");
   const womenGroups = buildGroupsStable(teams.filter((t) => t.competition === "women"), 4, "grp-w-");
   const groups = [...menGroups, ...womenGroups];
   const scheduled = scheduleGroupStageMatches(teams, groups);
@@ -2101,7 +2101,7 @@ function AdminView({ state, dispatch }) {
       {tab === "teams" && (
         <Section
           title="Teams"
-          sub={`Vaste deelnemers (${comp === "men" ? "20 mannenteams (5×4 — elk 3 groepswedstrijden)" : "4 vrouwenteams"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
+          sub={`Vaste deelnemers (${comp === "men" ? "20 mannenteams (4×5 — poule van 5: 4 groepswedstrijden)" : "4 vrouwenteams (1×4 — poule van 4: 3 groepswedstrijden)"}) · 30 min per wedstrijd · in voorrondes minstens één ronde rust tussen twee matchen per team · ontbrekend team = verlies · groepen en schema zijn vooraf vastgelegd`}
         >
           {isLocked && (
             <div style={{ padding: "8px 14px", borderRadius: 8, background: C.accentBg, border: `1px solid ${C.accent}22`, color: C.accent, fontSize: 11, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
@@ -2443,7 +2443,7 @@ function WelcomeScreenDisplay() {
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                   <Badge color={C.orange}>Mannen competitie</Badge>
                 </div>
-                <p style={{ color: C.text, fontSize: 26, margin: "0 0 10px" }}>Groepsfase — elk team speelt minimaal 3 wedstrijden</p>
+                <p style={{ color: C.text, fontSize: 26, margin: "0 0 10px" }}>Groepsfase — poule van 5: 4 wedstrijden · poule van 4: 3 wedstrijden</p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {["Kwartfinales", "Halve finales", "Finale"].map((r) => (
                     <span key={r} style={{ fontSize: 22, color: C.gold, background: C.goldBg, padding: "6px 16px", borderRadius: 8, fontWeight: 700 }}>{r}</span>
