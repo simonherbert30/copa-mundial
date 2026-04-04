@@ -2229,33 +2229,9 @@ function AdminView({ state, dispatch }) {
           {(() => {
             const ko = matches.filter((m) => m.phase !== "group");
             if (!ko.length) return <div style={{ textAlign: "center", padding: 36, color: C.text3 }}>Voltooi eerst de groepsfase.</div>;
-            const phaseOrder = ["R16", "QF", "SF", "Final"];
-            const phaseLabels = { R16: "Ronde van 16", QF: "Kwartfinales", SF: "Halve finales", Final: "Finale" };
-            const phases = phaseOrder.filter((p) => ko.some((m) => m.phase === p));
             return (
               <div>
                 <KnockoutBracket matches={ko} teams={state.teams} />
-                <div style={{ marginTop: 28, borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
-                  <h3 style={{ margin: "0 0 14px", fontSize: 13, color: C.text3, textTransform: "uppercase", fontFamily: FONT_DISPLAY, ...HEAD, letterSpacing: "0.1em" }}>Scores Invoeren</h3>
-                  {phases.map((ph) => {
-                    const roundMatches = ko.filter((m) => m.phase === ph);
-                    const allDone = roundMatches.every((m) => m.status === "completed");
-                    const allHaveWinners = roundMatches.every((m) => getMatchWinner(m) !== null);
-                    return (
-                      <div key={ph} style={{ marginBottom: 18 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                          <Badge color={C.orange}>{phaseLabels[ph] || ph}</Badge>
-                          {allDone && allHaveWinners && <Badge color={C.live}>✓ Voltooid</Badge>}
-                          {allDone && !allHaveWinners && <Badge color={C.red}>⚠ Strafschoppen vereist</Badge>}
-                          {!allDone && <Btn v="ghost" sz="sm" onClick={() => dispatch({ type: "FILL_SCORES", payload: { phase: ph, comp } })} style={{ color: C.orange }}>🎲 Vul in (Demo)</Btn>}
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 6 }}>
-                          {roundMatches.map((m) => <MatchCard key={m.id} match={m} teams={state.teams} compact onScore={(payload) => dispatch({ type: "SCORE", payload })} />)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
             );
           })()}
