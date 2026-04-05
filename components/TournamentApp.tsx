@@ -134,11 +134,11 @@ function slotToTime(slotIndex) {
 
 /** Chronologisch op weergegeven aanvangstijd (incl. per-ronde tijdsverschuiving), dan veld. */
 function compareMatchesBySchedule(a, b) {
-  const na = a.slotIndex;
-  const nb = b.slotIndex;
+  const na = a.slotIndex == null || a.slotIndex === "" ? null : Number(a.slotIndex);
+  const nb = b.slotIndex == null || b.slotIndex === "" ? null : Number(b.slotIndex);
   if (na == null && nb == null) return String(a.id).localeCompare(String(b.id));
-  if (na == null) return 1;
-  if (nb == null) return -1;
+  if (na == null || Number.isNaN(na)) return 1;
+  if (nb == null || Number.isNaN(nb)) return -1;
   const ta = slotStartMinutesOfDay(na);
   const tb = slotStartMinutesOfDay(nb);
   if (ta !== tb) return ta - tb;
@@ -216,6 +216,77 @@ function maxFieldsAtSchedulingSlot(slot) {
 
 function pairKeyIds(a, b) {
   return a < b ? `${a}\0${b}` : `${b}\0${a}`;
+}
+
+/** JSON/localStorage kan slotIndex/fieldId als string leveren; admin filter gebruikt === en mist ze dan in een ronde. */
+function normalizeMatchFromStorage(m) {
+  const slotRaw = m.slotIndex;
+  const fieldRaw = m.fieldId;
+  let slotIndex = slotRaw == null || slotRaw === "" ? null : Number(slotRaw);
+  if (slotIndex !== null && Number.isNaN(slotIndex)) slotIndex = null;
+  let fieldId = fieldRaw == null || fieldRaw === "" ? null : Number(fieldRaw);
+  if (fieldId !== null && Number.isNaN(fieldId)) fieldId = null;
+  return {
+    ...m,
+    homeId: m.homeId != null ? String(m.homeId) : m.homeId,
+    awayId: m.awayId != null ? String(m.awayId) : m.awayId,
+    groupId: m.groupId != null ? String(m.groupId) : m.groupId,
+    slotIndex,
+    fieldId,
+  };
+}
+
+function normalizeMatchesFromStorage(matches) {
+  return (matches || []).map(normalizeMatchFromStorage);
+}
+
+/** true = kapot (dubbel ingepland, verkeerde poule, ontbrekende groepsduels) → herbouw groepsfase. */
+function menGroupScheduleIntegrityFails(matches, teams, groups) {
+  if (!groups?.length) return false;
+  const menGroupMs = matches.filter(
+    (m) => m.phase === "group" && teams.find((t) => t.id === m.homeId)?.competition === "men",
+  );
+  const menGroups = groups.filter((g) => teams.find((t) => t.id === g.teamIds[0])?.competition === "men");
+  for (const g of menGroups) {
+    const idSet = new Set(g.teamIds.map(String));
+    const inG = menGroupMs.filter((m) => m.groupId === g.id);
+    const pairSeen = new Set();
+    for (const m of inG) {
+      const h = String(m.homeId);
+      const a = String(m.awayId);
+      if (!idSet.has(h) || !idSet.has(a)) return true;
+      const pk = pairKeyIds(h, a);
+      if (pairSeen.has(pk)) return true;
+      pairSeen.add(pk);
+    }
+    const k = g.teamIds.length;
+    const needPairs = (k * (k - 1)) / 2;
+    if (inG.length !== needPairs) return true;
+    for (const tid of g.teamIds) {
+      const ts = String(tid);
+      const played = inG.filter(
+        (m) =>
+          (String(m.homeId) === ts || String(m.awayId) === ts) &&
+          m.slotIndex != null &&
+          !Number.isNaN(Number(m.slotIndex)) &&
+          Number(m.slotIndex) >= 0,
+      ).length;
+      if (played !== k - 1) return true;
+    }
+    const bySlot = new Map();
+    for (const m of inG) {
+      if (m.slotIndex == null) continue;
+      const s = Number(m.slotIndex);
+      if (Number.isNaN(s)) continue;
+      if (!bySlot.has(s)) bySlot.set(s, new Set());
+      const set = bySlot.get(s);
+      for (const tid of [String(m.homeId), String(m.awayId)]) {
+        if (set.has(tid)) return true;
+        set.add(tid);
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -531,14 +602,24 @@ function forcePlaceRemainingMenGroupMatches(menMatches, existingNonMen, teams) {
   }
 }
 
-function matchVisibleForPlayerSchedule(m, teamId, teams) {
-  if (!(m.homeId === teamId || m.awayId === teamId)) return false;
-  const sel = teams.find((t) => t.id === teamId);
+function matchVisibleForPlayerSchedule(m, teamId, teams, groups) {
+  const tid = String(teamId);
+  if (!(String(m.homeId) === tid || String(m.awayId) === tid)) return false;
+  const sel = teams.find((t) => String(t.id) === tid);
   if (!sel) return false;
   if (m.phase === "group") {
-    const homeComp = teams.find((t) => t.id === m.homeId)?.competition;
-    if (homeComp !== sel.competition) return false;
-    return m.slotIndex != null && m.slotIndex >= 0;
+    const home = teams.find((t) => String(t.id) === String(m.homeId));
+    const away = teams.find((t) => String(t.id) === String(m.awayId));
+    if (!home || !away || home.competition !== away.competition || home.competition !== sel.competition) return false;
+    const sn = m.slotIndex == null || m.slotIndex === "" ? NaN : Number(m.slotIndex);
+    if (m.slotIndex == null || Number.isNaN(sn) || sn < 0) return false;
+    if (groups && groups.length) {
+      const grp = groups.find((g) => String(g.id) === String(m.groupId));
+      if (!grp) return false;
+      const gids = grp.teamIds.map(String);
+      if (!gids.includes(String(m.homeId)) || !gids.includes(String(m.awayId)) || !gids.includes(tid)) return false;
+    }
+    return true;
   }
   return true;
 }
@@ -1396,8 +1477,13 @@ function reducer(state, action) {
       const pl = action.payload;
       const teams = pl.teams?.length ? pl.teams : buildFixedTeams();
       const slotAdjustMin = pl.slotAdjustMin && typeof pl.slotAdjustMin === "object" ? { ...pl.slotAdjustMin } : {};
-      let matches = pl.matches || [];
+      let matches = normalizeMatchesFromStorage(pl.matches || []);
       if ((pl.groupScheduleVersion ?? 0) < GROUP_SCHEDULE_VERSION && pl.groups?.length) {
+        const freshGroup = scheduleGroupStageMatches(teams, pl.groups);
+        const nonGroup = matches.filter((m) => m.phase !== "group");
+        matches = [...freshGroup, ...nonGroup];
+      }
+      if (pl.groups?.length && menGroupScheduleIntegrityFails(matches, teams, pl.groups)) {
         const freshGroup = scheduleGroupStageMatches(teams, pl.groups);
         const nonGroup = matches.filter((m) => m.phase !== "group");
         matches = [...freshGroup, ...nonGroup];
@@ -2290,13 +2376,25 @@ function AdminView({ state, dispatch }) {
               const fromMatches = allM.map((m) => m.slotIndex).filter((s) => s != null && s >= 0);
               slotIndices = [...new Set([...fromMatches, ...[...WOMEN_GROUP_SLOTS], SLOT_WOMEN_FINAL])].sort((a, b) => a - b);
             } else {
-              const maxS = allM.length > 0 ? Math.max(...allM.map((m) => m.slotIndex ?? 0)) : -1;
+              const maxS =
+                allM.length > 0
+                  ? Math.max(
+                      -1,
+                      ...allM.map((m) => {
+                        const n = m.slotIndex == null || m.slotIndex === "" ? NaN : Number(m.slotIndex);
+                        return Number.isNaN(n) ? -1 : n;
+                      }),
+                    )
+                  : -1;
               slotIndices = maxS >= 0 ? Array.from({ length: maxS + 1 }, (_, i) => i) : [];
             }
             return (
               <>
        {slotIndices.map((si) => {
-            const sm = allM.filter((m) => m.slotIndex === si);
+            const sm = allM.filter((m) => {
+              const ns = m.slotIndex == null || m.slotIndex === "" ? NaN : Number(m.slotIndex);
+              return !Number.isNaN(ns) && ns === si;
+            });
             if (comp === "men" && sm.length === 0) return null;
             const adj = Number(state.slotAdjustMin?.[String(si)] ?? state.slotAdjustMin?.[si] ?? 0);
             return (
@@ -2416,20 +2514,25 @@ function PlayerView({ state }) {
     const notes = [];
     const upcoming = [...state.matches]
       .filter(
-        (m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams) && m.status === "scheduled",
+        (m) =>
+          matchVisibleForPlayerSchedule(m, selectedTeam, state.teams, state.groups) && m.status === "scheduled",
       )
       .sort(compareMatchesBySchedule)[0];
     if (upcoming) {
-      const opp = state.teams.find((t) => t.id === (upcoming.homeId === selectedTeam ? upcoming.awayId : upcoming.homeId));
+      const st = String(selectedTeam);
+      const oppId = String(upcoming.homeId) === st ? upcoming.awayId : upcoming.homeId;
+      const opp = state.teams.find((t) => String(t.id) === String(oppId));
       const field = FIELDS.find((f) => f.id === upcoming.fieldId);
-      notes.push({ msg: `Volgende: vs ${opp?.name} op ${field?.sponsor} om ${slotToTime(upcoming.slotIndex ?? 0)}`, type: "info" });
+      const us = upcoming.slotIndex == null || upcoming.slotIndex === "" ? NaN : Number(upcoming.slotIndex);
+      const timeStr = Number.isNaN(us) ? "—" : slotToTime(us);
+      notes.push({ msg: `Volgende: vs ${opp?.name} op ${field?.sponsor} om ${timeStr}`, type: "info" });
     }
     const live = state.matches.find(
-      (m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams) && m.status === "live",
+      (m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams, state.groups) && m.status === "live",
     );
     if (live) notes.unshift({ msg: `🔴 LIVE — ${live.scoreHome} : ${live.scoreAway}`, type: "warning" });
     setNotifications(notes);
-  }, [selectedTeam, state.matches, state.teams]);
+  }, [selectedTeam, state.matches, state.teams, state.groups]);
 
   if (!comp) {
     return (
@@ -2477,7 +2580,7 @@ function PlayerView({ state }) {
 
   const team = state.teams.find((t) => t.id === selectedTeam);
   const teamMatches = state.matches
-    .filter((m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams))
+    .filter((m) => matchVisibleForPlayerSchedule(m, selectedTeam, state.teams, state.groups))
     .sort(compareMatchesBySchedule);
   const teamGroup = state.groups.find((g) => g.teamIds.includes(selectedTeam));
 
@@ -2493,8 +2596,15 @@ function PlayerView({ state }) {
       <Section title="Wedstrijden" sub={`${teamMatches.length} gepland`}>
         <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
           {teamMatches.map((m) => (
-            <div key={m.id}>
-              <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>🕐 {slotToTime(m.slotIndex ?? 0)} · {scheduleRoundBadgeText(m.slotIndex ?? 0, matchScheduleComp(m, state.teams))}</div>
+              <div key={m.id}>
+              <div style={{ fontSize: 10, color: C.text3, marginBottom: 2, fontWeight: 600 }}>
+                {(() => {
+                  const sn = m.slotIndex == null || m.slotIndex === "" ? NaN : Number(m.slotIndex);
+                  if (Number.isNaN(sn))
+                    return <>— · {m.phase === "group" ? "Groep" : m.phase}</>;
+                  return <>🕐 {slotToTime(sn)} · {scheduleRoundBadgeText(sn, matchScheduleComp(m, state.teams))}</>;
+                })()}
+              </div>
               <MatchCard match={m} teams={state.teams} compact refereeDisplayMode="player" />
             </div>
           ))}
@@ -2703,7 +2813,10 @@ function ScreenView({ state }) {
     const nextS = cur + 1;
     const block = (slot, titleExtra) => {
       const ms = all
-        .filter((m) => m.slotIndex === slot)
+        .filter((m) => {
+          const n = m.slotIndex == null || m.slotIndex === "" ? NaN : Number(m.slotIndex);
+          return !Number.isNaN(n) && n === slot;
+        })
         .sort((a, b) => (a.fieldId || 0) - (b.fieldId || 0));
       return (
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
